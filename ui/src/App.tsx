@@ -117,7 +117,9 @@ export default function App() {
     setJumpTo({ path: where.path, line: where.line, nonce: Date.now() })
   }, [])
 
-  /** The arrow the other way: the line you are writing, found on the page. */
+  /* The arrow the other way: the line you are writing, found on the page.
+   * Handed to the editor only when there is a page — with no LaTeX root the
+   * button would be there and could never work. */
   const showLineInPdf = useCallback((path: string, line: number) => {
     setShowInPdf({ path, line, nonce: Date.now() })
   }, [])
@@ -172,7 +174,7 @@ export default function App() {
         </span>
         <span className="meta mono">{config?.main_branch ?? ''}</span>
         <span className="spacer" />
-        <span className="meta">{config?.overleaf ?? ''}</span>
+        <span className="meta">{config?.publish ?? ''}</span>
         {!pdfOpen && (
           <button className="tiny" onClick={togglePdf}>
             Show PDF
@@ -316,7 +318,7 @@ export default function App() {
                       ? 'Review'
                       : t === 'chat'
                         ? 'Chat'
-                        : 'Git & Overleaf'}
+                        : 'Git & publish'}
                   {t === 'review' && pending > 0 && <span className="count">{pending}</span>}
                 </button>
               ))}
@@ -335,7 +337,7 @@ export default function App() {
                   onAsk={askAboutSelection}
                   busy={starting}
                   jumpTo={jumpTo}
-                  onShowInPdf={showLineInPdf}
+                  onShowInPdf={config?.builds_pdf ? showLineInPdf : undefined}
                 />
               )}
               {tab === 'review' &&
@@ -375,6 +377,7 @@ export default function App() {
             onCollapse={togglePdf}
             onJump={jumpToSource}
             showInPdf={showInPdf}
+            buildsPdf={config?.builds_pdf ?? true}
           />
         </Panel>
       </PanelGroup>

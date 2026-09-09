@@ -14,10 +14,16 @@ def register(app: FastAPI, d: Deps) -> None:
         cfg = d.cfg
         return {
             "paper_repo": str(cfg.paths.paper_repo),
-            "code_mirror": str(cfg.paths.code_mirror),
+            # Null rather than absent: the UI has to tell "no codebase" from
+            # "the server is an older one that did not say".
+            "code_mirror": str(cfg.paths.code_mirror) if cfg.paths.code_mirror else None,
             "main_branch": cfg.paper.main_branch,
             "main_tex": cfg.paper.main_tex,
-            "overleaf": f"{cfg.paper.overleaf_remote}/{cfg.paper.overleaf_branch}",
+            # Whether the LaTeX half of Galley means anything here. Compiling,
+            # SyncTeX and \cite completion all rest on this one file existing,
+            # so the UI asks once rather than each of them failing separately.
+            "builds_pdf": cfg.builds_a_pdf,
+            "publish": f"{cfg.paper.publish_remote}/{cfg.paper.publish_branch}",
             "max_concurrent_sessions": cfg.limits.max_concurrent_sessions,
             "latexdiff": latex.latexdiff_available(),
             "bind": f"{cfg.server.bind}:{cfg.server.port}",

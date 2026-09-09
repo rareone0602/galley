@@ -4,9 +4,14 @@ import { api, type GitStatus, type SyncResult } from '../api'
 /**
  * Ordinary staging and committing on the main branch, plus one compound Sync.
  *
- * Overleaf is a single-branch remote with a second writer attached — you are
- * collaborating with yourself — so Sync always rebases before it pushes, and
- * never forces.
+ * The remote this was built against is Overleaf's git bridge: a single branch
+ * with a second writer attached, so you are collaborating with yourself. Hence
+ * Sync always rebases before it pushes, and never forces. Any ordinary remote
+ * behaves correctly under those rules, and a project with no remote at all is
+ * a normal state the panel names rather than hides.
+ *
+ * Why Sync is unavailable is the backend's sentence, not one written twice
+ * here: `publish.blocked` is exactly what pressing it would have refused with.
  */
 export default function GitPanel() {
   const [status, setStatus] = useState<GitStatus | null>(null)
@@ -32,8 +37,10 @@ export default function GitPanel() {
   if (error) return <div className="notice bad">{error}</div>
   if (!status) return <div className="empty">Reading the repository…</div>
 
-  const ol = status.overleaf
-  const canSync = ol.on_main && ol.clean && !busy
+  const pub = status.publish
+  const canSync = pub.blocked === null && !busy
+  const target =
+    pub.state === 'no_remote' ? 'no remote configured' : `${pub.remote}/${pub.remote_branch}`
 
   return (
     <>
@@ -103,29 +110,29 @@ export default function GitPanel() {
       </div>
 
       <div className="card">
-        <h3>Overleaf — {ol.remote}/{ol.remote_branch}</h3>
+        <h3>Publish — {target}</h3>
         <div className="row small" style={{ marginBottom: 8 }}>
-          <span className={ol.on_main ? 'muted' : ''} style={{ color: ol.on_main ? undefined : 'var(--del)' }}>
-            on {ol.branch}
+          <span className={pub.on_main ? 'muted' : ''} style={{ color: pub.on_main ? undefined : 'var(--del)' }}>
+            on {pub.branch}
           </span>
           <span className="muted">·</span>
-          <span style={{ color: ol.clean ? undefined : 'var(--del)' }}>
-            {ol.clean ? 'clean' : 'uncommitted changes'}
+          <span style={{ color: pub.clean ? undefined : 'var(--del)' }}>
+            {pub.clean ? 'clean' : 'uncommitted changes'}
           </span>
-          {ol.ahead !== null && (
-            <>
-              <span className="muted">·</span>
-              <span className="muted">
-                {ol.ahead} ahead, {ol.behind} behind
-              </span>
-            </>
-          )}
+          <span className="muted">·</span>
+          <span className="muted">
+            {pub.state === 'ready'
+              ? `${pub.ahead} ahead, ${pub.behind} behind`
+              : pub.state === 'unpushed'
+                ? 'never published from here'
+                : 'nowhere to publish to'}
+          </span>
         </div>
 
-        {ol.conflicts.length > 0 && (
+        {pub.conflicts.length > 0 && (
           <div className="notice warn">
             <strong>The remote moved and these files conflict:</strong>{' '}
-            {ol.conflicts.join(', ')}. Resolve them in the merge pane — it is the same
+            {pub.conflicts.join(', ')}. Resolve them in the merge pane — it is the same
             sentence-level tool — then continue the rebase.
             <div className="row" style={{ marginTop: 8 }}>
               <button className="tiny" onClick={() => api.rebase('continue').then(setSync).then(reload)}>
@@ -161,7 +168,9 @@ export default function GitPanel() {
             Sync
           </button>
           <span className="muted small">
-            Pull with rebase, then push. Never a force. Claude's branches stay local.
+            {pub.blocked
+              ? `Sync is unavailable: ${pub.blocked}`
+              : "Pull with rebase, then push. Never a force. Claude's branches stay local."}
           </span>
         </div>
       </div>

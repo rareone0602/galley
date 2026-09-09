@@ -16,7 +16,23 @@ from ..services import latex
 from .deps import Deps
 
 
+NO_LATEX = (
+    "this project has no {main_tex}, so there is nothing to compile. Point "
+    "[paper] main_tex at the file latexmk should build, or leave it — a "
+    "project that produces no PDF is a perfectly ordinary one."
+)
+
+
 def register(app: FastAPI, d: Deps) -> None:
+    def _require_latex() -> None:
+        """Refuse before starting a build that cannot succeed.
+
+        latexmk on a file that is not there fails after several seconds with a
+        message about the wrong thing. This says the true reason immediately.
+        """
+        if not d.cfg.builds_a_pdf:
+            raise HTTPException(400, NO_LATEX.format(main_tex=d.cfg.paper.main_tex))
+
     def _compile_job(session_id: str | None):
         repo, outdir = d.cfg.paths.paper_repo, d.cfg.paths.state_dir / "build"
         if session_id:
@@ -41,6 +57,7 @@ def register(app: FastAPI, d: Deps) -> None:
     # background task raises "no running event loop".
     @app.post("/api/compile")
     async def compile_paper(body: dict = Body(default={})) -> dict:
+        _require_latex()
         session_id = body.get("session_id")
         return d.work.start(f"compile:{session_id or 'main'}", _compile_job(session_id))
 
@@ -51,6 +68,7 @@ def register(app: FastAPI, d: Deps) -> None:
     @app.post("/api/review")
     async def latexdiff_review(body: dict = Body(...)) -> dict:
         """The second review surface: the change as it will appear in print."""
+        _require_latex()
         session_id = body.get("session_id")
         if not session_id:
             raise HTTPException(400, "a review needs a session")

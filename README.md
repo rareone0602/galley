@@ -66,8 +66,11 @@ The layout is Overleaf's, because that is the one you already know: the
 project's files on the left, the source in the middle, the PDF on the right,
 dividers you can drag.
 
-The editor is CodeMirror 6 — the same editor Overleaf uses — with LaTeX
-highlighting. `Cmd/Ctrl-S` writes the file, and `Ctrl` with `+`, `-` or `0`
+The editor is CodeMirror 6 — the same editor Overleaf uses — and it picks its
+highlighting from the file: LaTeX for the paper, and the right mode for the
+scripts, configs and `.bib` beside it. A file it has no mode for stays plain
+text and says so, because wrong colours are worse than none. `Cmd/Ctrl-S`
+writes the file, and `Ctrl` with `+`, `-` or `0`
 sizes the text (the editor's, not the whole page's). What appears in the file tree is
 git's answer (`git ls-files` plus untracked-but-not-ignored), so build output and
 session worktrees never show up, and the rail is exactly the set of files that
@@ -167,13 +170,41 @@ the file is inferred from the transcript and then checked against the project;
 where it cannot be checked the message is kept and the location dropped, because
 a wrong line number is worse than none.
 
-## Overleaf
+## Publishing
 
-Treated as a dumb single-branch remote with a second writer attached, because
-that is what it is. One compound **Sync** button: refuse unless you are on the
-main branch with a clean tree, `pull --rebase`, route any conflict into the same
-sentence-level merge pane, then push. Never a force. Claude's branches stay
-local, so Overleaf only ever sees prose you already accepted.
+Overleaf is the remote this was built against, and it is a dumb single-branch
+remote with a second writer attached — one branch, force-push unreliable, and
+you in the web editor moving it while you are not looking. So there is one
+compound **Sync** button: refuse unless you are on the main branch with a clean
+tree, `pull --rebase`, route any conflict into the same sentence-level merge
+pane, then push. Never a force. Claude's branches stay local, so the remote
+only ever sees prose you already accepted.
+
+Any ordinary remote behaves the same way, so the config calls it
+`publish_remote` / `publish_branch` rather than naming the mechanism after one
+service. **A project with no remote is fine**: the panel says there is nowhere
+to publish to, and the button carries the reason rather than failing when
+pressed. The sentence beside the disabled button is the one pressing it would
+have produced — the backend owns it, and a test pins the two against each
+other.
+
+## Using it for another project
+
+A Galley is one git repository plus whatever that repository happens to have. A
+companion codebase, a remote, a LaTeX root — name each in `galley.local.toml`
+when the project has one, and Galley reports the absent ones as absent instead
+of failing when you press the button. Only `paper_repo` is required.
+
+Put a `galley.local.toml` beside the other project and start `galley` there:
+it walks up from the working directory to find one, or takes `--config`. Give
+the second one a different `[server] port` and `[paths] state_dir` so the two do
+not fight over one database. Anything a particular machine needs — where the
+virtualenv lives, where big temporary files go — belongs in `run.env` beside
+`run.sh`; see `run.env.example`.
+
+Without a LaTeX root the PDF, SyncTeX and `\cite`/`\ref` completion switch
+themselves off and say why; the rail, the editor, Claude and the merge pane all
+work regardless.
 
 ## Stack
 
@@ -194,8 +225,8 @@ AGPL-3.0-or-later. See [`LICENSE`](LICENSE).
 
 The split view uses [`react-resizable-panels`](https://github.com/bvaughn/react-resizable-panels)
 (MIT) — the same library Overleaf uses for its own editor/PDF split — and the
-editor is CodeMirror 6 (MIT) with the LaTeX mode from `@codemirror/legacy-modes`
-rather than Overleaf's own Lezer grammar. The PDF is drawn by PDF.js
+editor is CodeMirror 6 (MIT) with modes from `@codemirror/legacy-modes` rather
+than Overleaf's own Lezer grammar. The PDF is drawn by PDF.js
 (Apache-2.0), pinned to the 4.x line because 6.x needs Chrome 126. The palette
 is Overleaf's published design tokens. No Overleaf source is vendored here.
 

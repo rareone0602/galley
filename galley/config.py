@@ -1,5 +1,10 @@
 """Load and validate `galley.local.toml`.
 
+A Galley is one git repository plus the things that repository happens to have.
+Only the repository is required. A companion codebase, a remote to publish to,
+a LaTeX root — each is named here when the project has one, and its absence is
+an ordinary state rather than a misconfiguration.
+
 Two things are checked hard at startup, because both fail silently otherwise:
 an inherited API key (which bills the API instead of your subscription), and a
 paper repo that is not actually a git repository.
@@ -26,15 +31,25 @@ class ConfigError(RuntimeError):
 @dataclass(frozen=True)
 class Paths:
     paper_repo: Path
-    code_mirror: Path
     state_dir: Path
+    #: A codebase mounted beside the paper so the agent can read what the
+    #: experiments did before it describes them. Most projects have no such
+    #: thing, so it is None unless the config names one.
+    code_mirror: Path | None = None
 
 
 @dataclass(frozen=True)
 class Paper:
     main_branch: str = "master"
-    overleaf_remote: str = "origin"
-    overleaf_branch: str = "master"
+    #: The remote you publish to. Overleaf's git bridge is the case this was
+    #: built for — one branch, no force-push, a second writer in the web
+    #: editor — but any ordinary remote behaves the same way, and a project
+    #: with no remote at all is a normal state.
+    publish_remote: str = "origin"
+    publish_branch: str = "master"
+    #: The file latexmk compiles. A project that builds no PDF leaves it
+    #: pointing at nothing, and the LaTeX half of Galley reports itself
+    #: unavailable rather than failing when pressed.
     main_tex: str = "main.tex"
 
 
@@ -65,6 +80,20 @@ class Config:
     def worktrees_dir(self) -> Path:
         return self.paths.paper_repo / ".worktrees"
 
+    @property
+    def main_tex_path(self) -> Path:
+        return self.paths.paper_repo / self.paper.main_tex
+
+    @property
+    def builds_a_pdf(self) -> bool:
+        """Whether this project has the LaTeX root it says it has.
+
+        The one owner of that question: compiling, SyncTeX and the completion
+        index all only mean something when it is true, and the UI hides them
+        rather than offering a button that cannot work.
+        """
+        return self.main_tex_path.is_file()
+
 
 def find_config(start: Path | None = None) -> Path:
     here = (start or Path.cwd()).resolve()
@@ -83,25 +112,35 @@ def load(path: Path | None = None) -> Config:
     raw = tomllib.loads(path.read_text(encoding="utf-8"))
     root = path.parent
 
-    def _path(section: dict, key: str, default: str | None = None) -> Path:
-        value = section.get(key, default)
+    def _path(section: dict, key: str) -> Path | None:
+        """A path from the config, relative ones taken from beside the file."""
+        value = section.get(key)
         if value is None:
-            raise ConfigError(f"{path}: [{key}] is required")
-        p = Path(str(value)).expanduser()
-        return p if p.is_absolute() else (root / p).resolve()
+            return None
+        resolved = Path(str(value)).expanduser()
+        return resolved if resolved.is_absolute() else (root / resolved).resolve()
+
+    def _required(section: dict, key: str) -> Path:
+        value = _path(section, key)
+        if value is None:
+            raise ConfigError(f"{path}: [paths] {key} is required")
+        return value
 
     paths_raw = raw.get("paths", {})
     paths = Paths(
-        paper_repo=_path(paths_raw, "paper_repo"),
+        paper_repo=_required(paths_raw, "paper_repo"),
+        state_dir=_path(paths_raw, "state_dir") or (root / ".galley"),
         code_mirror=_path(paths_raw, "code_mirror"),
-        state_dir=_path(paths_raw, "state_dir", str(root / ".galley")),
     )
 
     p = raw.get("paper", {})
     paper = Paper(
         main_branch=p.get("main_branch", "master"),
-        overleaf_remote=p.get("overleaf_remote", "origin"),
-        overleaf_branch=p.get("overleaf_branch", "master"),
+        # `overleaf_*` were the original names, from the one project this was
+        # built against, whose remote *is* the Overleaf git bridge. They still
+        # load, and `validate` says so once, so an existing config keeps working.
+        publish_remote=p.get("publish_remote", p.get("overleaf_remote", "origin")),
+        publish_branch=p.get("publish_branch", p.get("overleaf_branch", "master")),
         main_tex=p.get("main_tex", "main.tex"),
     )
 
@@ -112,12 +151,24 @@ def load(path: Path | None = None) -> Config:
     limits = Limits(max_concurrent_sessions=int(limit.get("max_concurrent_sessions", 2)))
 
     cfg = Config(paths, paper, server, limits, path)
-    validate(cfg)
+    validate(cfg, raw_paper=p)
     return cfg
 
 
-def validate(cfg: Config) -> None:
+#: Config keys that changed name when Galley stopped assuming Overleaf.
+RENAMED_KEYS = {"overleaf_remote": "publish_remote", "overleaf_branch": "publish_branch"}
+
+
+def validate(cfg: Config, raw_paper: dict | None = None) -> None:
     """Fail loudly and early, rather than halfway through a session."""
+    raw_paper = raw_paper or {}
+    for old, new in RENAMED_KEYS.items():
+        if old in raw_paper:
+            print(
+                f"galley: [paper] {old} is the old name for {new}; both load, "
+                f"but rename it in {cfg.source.name} and this notice goes away."
+            )
+
     leaked = [v for v in BILLING_ENV_VARS if os.environ.get(v)]
     if leaked:
         raise ConfigError(
@@ -129,7 +180,8 @@ def validate(cfg: Config) -> None:
 
     if not (cfg.paths.paper_repo / ".git").exists():
         raise ConfigError(f"paper_repo {cfg.paths.paper_repo} is not a git repository")
-    if not cfg.paths.code_mirror.is_dir():
+    # Named but absent is a mistake worth stopping for; not named at all is not.
+    if cfg.paths.code_mirror is not None and not cfg.paths.code_mirror.is_dir():
         raise ConfigError(f"code_mirror {cfg.paths.code_mirror} does not exist")
     if cfg.server.bind not in ("127.0.0.1", "localhost", "::1"):
         # Not fatal, but this port can spawn agents and write files in the

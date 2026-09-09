@@ -1,7 +1,8 @@
 import { json } from './client'
 import type { GitStatus, SyncResult } from './types'
 
-/** Git and Overleaf. Every one of these is something you do, never the agent. */
+/** Git, and publishing to the remote. Every one of these is something you do,
+ *  never the agent. */
 export const gitApi = {
   gitStatus: () => json<GitStatus>('/api/git/status'),
   commit: (message: string, paths: string[]) =>

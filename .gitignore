@@ -40,6 +40,8 @@ artifacts-cache/
 .env
 .env.*
 galley.local.toml
+# Machine-specific environment for run.sh; run.env.example is committed.
+run.env
 
 # macOS
 .DS_Store

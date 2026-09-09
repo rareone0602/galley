@@ -28,11 +28,15 @@ export default function PdfPane({
   onCollapse,
   onJump,
   showInPdf,
+  buildsPdf,
 }: {
   sessionId: string | null
   latexdiffAvailable: boolean
   onCollapse: () => void
   onJump: (where: SourceLocation) => void
+  /** Whether the project has the LaTeX root it names. When it does not there
+   *  is no paper to draw, and saying so beats a button that cannot work. */
+  buildsPdf: boolean
   /** A source line to go to, from the editor. The nonce is the gesture: the
    *  same line asked for twice should scroll and flash twice. */
   showInPdf?: { path: string; line: number; nonce: number } | null
@@ -268,12 +272,25 @@ export default function PdfPane({
           <div className="empty small">Building the paper…</div>
         ) : (
           <div className="empty">
-            Compile to see the paper.
-            <div style={{ marginTop: 10 }}>
-              <button className="primary" onClick={() => run('accepted')}>
-                Compile
-              </button>
-            </div>
+            {buildsPdf ? (
+              <>
+                Compile to see the paper.
+                <div style={{ marginTop: 10 }}>
+                  <button className="primary" onClick={() => run('accepted')}>
+                    Compile
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                This project builds no PDF.
+                <div className="small" style={{ marginTop: 8 }}>
+                  Nothing here matches <span className="mono">[paper] main_tex</span>.
+                  Point it at the file latexmk should build, or leave it — the
+                  editor, the rail, Claude and the merge pane all work without one.
+                </div>
+              </>
+            )}
           </div>
         )}
       </div>

@@ -1,20 +1,46 @@
 # Copy to galley.local.toml (gitignored) and edit.
+#
+# A Galley is one git repository plus whatever that repository happens to have.
+# Only [paths] paper_repo is required; everything below it describes something
+# the project may or may not own, and Galley reports the absent ones as absent
+# rather than failing when you press the button.
+#
+# To run Galley for a second project, put a galley.local.toml in that project's
+# own directory and start it there — `galley` walks up from the working
+# directory to find one, or takes `--config`. Give it a different [server] port
+# and a different [paths] state_dir, or the two will fight over the database.
 
 [paths]
-paper_repo  = "/Users/you/papers/my-paper"
-# The codebase, mounted beside the paper so Claude can read what the
-# experiments actually did before it describes them.
-code_mirror = "/Users/you/code/my-project"
+# The repository whose prose you are writing. The one required setting.
+paper_repo  = "~/papers/my-paper"
+
 # SQLite state and the LaTeX build directory. Small; keep it somewhere durable.
+# Defaults to .galley beside this file.
 state_dir   = ".galley"
 
+# Optional. A codebase mounted beside the paper so Claude can read what the
+# experiments actually did before it describes them. The agent gets read access
+# to it and can never write there. Leave it out if the paper has no such
+# companion — most do not.
+# code_mirror = "~/code/my-project"
+
 [paper]
-# The branch you merge onto, and the Overleaf remote. On a repo cloned straight
-# from the Overleaf git bridge these are all "master"/"origin".
-main_branch     = "master"
-overleaf_remote = "origin"
-overleaf_branch = "master"
-main_tex        = "main.tex"
+# The branch you merge onto.
+main_branch    = "master"
+
+# The remote you publish to, and its branch. Overleaf's git bridge is the case
+# Galley was built for — one branch, force-push unreliable, a second writer in
+# the web editor — but any ordinary remote works the same way. A project with
+# no remote is fine: the Git panel says so and Sync explains why it is
+# unavailable instead of failing.
+publish_remote = "origin"
+publish_branch = "master"
+
+# The file latexmk compiles, relative to paper_repo. If this file does not
+# exist, Galley hides the PDF, SyncTeX and \cite/\ref completion rather than
+# offering buttons that cannot work — which is what you want when the project
+# is not a LaTeX one.
+main_tex       = "main.tex"
 
 [server]
 # Loopback only. Anyone who can reach this port can spawn agents and write files

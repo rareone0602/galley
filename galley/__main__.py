@@ -28,7 +28,14 @@ def main() -> int:
     host = args.bind or cfg.server.bind
     port = args.port or cfg.server.port
     print(f"galley: paper  {cfg.paths.paper_repo}")
-    print(f"galley: code   {cfg.paths.code_mirror}")
+    if cfg.paths.code_mirror is not None:
+        print(f"galley: code   {cfg.paths.code_mirror}")
+    if not cfg.builds_a_pdf:
+        print(
+            f"galley: no {cfg.paper.main_tex} in the paper — the PDF, SyncTeX "
+            "and LaTeX completion are off for this project"
+        )
+    print(f"galley: config {cfg.source}")
     print(f"galley: serving on http://{host}:{port}")
 
     from .app import create_app

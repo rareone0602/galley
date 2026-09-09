@@ -7,8 +7,15 @@ cd "$(dirname "$0")"
 # key. Galley strips it from the child, and refuses to start if it is here.
 unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN
 
-export UV_PROJECT_ENVIRONMENT="${UV_PROJECT_ENVIRONMENT:-/scratch/users/$USER/venvs/galley}"
-export TMPDIR="${TMPDIR:-/scratch/temp/$USER}"
-mkdir -p "$TMPDIR"
+# Anything this machine needs and no other does — where the virtualenv lives,
+# where big temporary files go — belongs in run.env, which is gitignored.
+# See run.env.example. Nothing here assumes a particular box.
+if [ -f run.env ]; then
+  set -a
+  # shellcheck disable=SC1091
+  . ./run.env
+  set +a
+fi
+[ -n "${TMPDIR:-}" ] && mkdir -p "$TMPDIR"
 
 exec uv run galley "$@"

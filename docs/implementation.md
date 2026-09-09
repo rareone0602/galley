@@ -190,8 +190,10 @@ tracked file and pushed that change to Overleaf.
 `8124` rather than `7878`, bound to loopback; reach it with
 `ssh -L 8124:localhost:8124 wsserver1`. The paper repo is the `FLM` checkout
 itself, whose local branch is `master` and whose `origin` *is* the Overleaf git
-bridge — so `main_branch`, `overleaf_remote` and `overleaf_branch` are
-configurable rather than hard-coded to `main`/`overleaf`/`master`.
+bridge — so `main_branch`, `publish_remote` and `publish_branch` are
+configurable rather than hard-coded to `main`/`overleaf`/`master`. (Those two
+were called `overleaf_remote` and `overleaf_branch` until section 23; both
+names still load.)
 
 ---
 
@@ -202,9 +204,17 @@ configurable rather than hard-coded to `main`/`overleaf`/`master`.
 **What the code does.** Overleaf's shape, because that is the shape you know:
 the project's files on the left, the source in the middle, the PDF on the right.
 `GET /api/tree` builds the rail, `GET /api/file` opens one, `PUT /api/files/…`
-saves it. The editor is CodeMirror 6 — the same editor Overleaf uses — with the
-LaTeX mode from `@codemirror/legacy-modes` rather than Overleaf's own Lezer
-grammar, which is part of their AGPL source.
+saves it. The editor is CodeMirror 6 — the same editor Overleaf uses — with
+modes from `@codemirror/legacy-modes` rather than Overleaf's own Lezer grammar,
+which is part of their AGPL source.
+
+Which mode is a question about the file name, answered in one place
+(`ui/src/editor/languages.ts`). A file with no mode is left as plain text and
+the bar says so: a wrong highlighting is quieter than none, and a `.py` painted
+as LaTeX looks fine until you notice the comments are wrong. `.bib` is the one
+mode written here rather than imported — neither CodeMirror 6 nor CodeMirror 5
+before it has one, and a bibliography is not an incidental file in a paper
+workbench.
 
 What is *in* the project is git's answer, not the filesystem's:
 `git ls-files` plus untracked-but-not-ignored files. So `_build/`, `.worktrees/`
@@ -474,6 +484,56 @@ without appearing in the legend), a header that reads `Change 3 of 17 · 5 taken
 · 2 rewritten`, ticks down the side at each change's *measured* position, take
 all / keep all per file with an undo stack, and a Save panel that says which
 files it would write and what size each becomes before it writes anything.
+
+### 23. One repository, plus whatever it happens to have
+
+Galley was built against one paper, and had quietly taken that paper's shape as
+the shape of all papers. Four things were required that are not:
+
+- **A companion codebase.** `code_mirror` was mandatory, validated to exist,
+  and unconditionally granted to the agent through `add_dirs` — and the agent's
+  system prompt told it, always, that a codebase was mounted beside the paper.
+  For a project without one that is an instruction it cannot follow and a
+  standing invitation to imagine the contents. It is now optional, the prompt
+  is composed from the config rather than fixed, and `add_dirs` is empty when
+  there is nothing to add.
+- **A remote called Overleaf.** Overleaf's git bridge is the case this was
+  built for and the reason the design is one compound button that always
+  rebases and never forces — but it is not the name of the mechanism. The
+  config keys are `publish_remote` / `publish_branch`, the old `overleaf_*`
+  names still load and say so once at startup, and a project with no remote at
+  all is an ordinary state rather than a 500.
+- **A LaTeX root.** `main_tex` defaulted to `main.tex` and nothing checked. A
+  project that builds no PDF now says so once, in `cfg.builds_a_pdf`, and the
+  compile and review routes refuse before starting rather than letting latexmk
+  fail slowly and about the wrong thing. The UI hides the PDF pane's Compile
+  button and the editor's *Show in PDF* rather than offering something that
+  cannot work.
+- **One machine.** `run.sh` hard-coded `/scratch/users/$USER/venvs/galley` and
+  `/scratch/temp/$USER`, which exist on exactly one box. Anything a particular
+  machine needs now lives in a gitignored `run.env` beside it, with
+  `run.env.example` committed.
+
+**Two projects at once** was already possible and is now documented: `galley`
+walks up from the working directory for a `galley.local.toml`, or takes
+`--config`, so a second project keeps its own beside its own repository. Give
+it a different port and a different `state_dir` or the two fight over one
+database.
+
+**Checked against two projects that share nothing with the paper.** A Python
+library with no LaTeX, no codebase and no remote: the rail lists its four
+files, reading and writing work, the completion index answers with nothing
+rather than failing, and `POST /api/compile` returns 400 naming the setting to
+change. A thesis on a branch called `trunk` whose root is `src/thesis.tex`:
+compiled clean in 0.3s to a 38,555-byte PDF with no problems reported, clicks
+on page 1 resolved to `src/thesis.tex` lines 4, 6 and 7, and forward search
+found both the root file's line 6 and line 3 of `chapters/second.tex` — an
+`\input`-ed file in a different directory from the root.
+
+That last one also settled a question the one-paper case never asked: latexmk
+runs with the **project root** as its working directory, not the root file's
+directory, which is what Overleaf does and therefore what `\input` paths in a
+real project already assume.
 
 ## What has been exercised, and what has not
 

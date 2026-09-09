@@ -65,13 +65,42 @@ code_mirror   = "{code_mirror}"
 state_dir     = "{tmp_path / 'state'}"
 
 [paper]
-main_branch     = "main"
-overleaf_remote = "origin"
-overleaf_branch = "master"
+main_branch    = "main"
+publish_remote = "origin"
+publish_branch = "master"
 
 [server]
 bind = "127.0.0.1"
 port = 8124
+"""
+    )
+    return load(path)
+
+
+@pytest.fixture
+def bare_config(tmp_path: Path, paper_repo: Path):
+    """A project that has only itself: no codebase, no remote, no LaTeX root.
+
+    The generalised case. Everything Galley can still do here, it must do; and
+    everything it cannot, it must say so about rather than fail when pressed.
+    """
+    from galley.config import load
+
+    path = tmp_path / "bare" / "galley.local.toml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        f"""
+[paths]
+paper_repo = "{paper_repo}"
+state_dir  = "{tmp_path / 'bare-state'}"
+
+[paper]
+main_branch = "main"
+main_tex    = "nothing-here.tex"
+
+[server]
+bind = "127.0.0.1"
+port = 8125
 """
     )
     return load(path)

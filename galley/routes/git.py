@@ -1,10 +1,10 @@
-"""Git and Overleaf. Every route here is something you do, never the agent."""
+"""Git, and publishing to the remote. Every route here is yours, never the agent's."""
 
 from __future__ import annotations
 
 from fastapi import Body, FastAPI, HTTPException
 
-from ..services import git, overleaf, worktree
+from ..services import git, publish, worktree
 from .deps import Deps
 
 
@@ -22,7 +22,7 @@ def register(app: FastAPI, d: Deps) -> None:
             ],
             "worktrees": worktree.listing(repo),
             "log": git.log(repo, 10),
-            "overleaf": overleaf.status(d.cfg),
+            "publish": publish.status(d.cfg),
         }
 
     @app.post("/api/git/commit")
@@ -41,12 +41,12 @@ def register(app: FastAPI, d: Deps) -> None:
 
     @app.post("/api/git/sync")
     def git_sync(body: dict = Body(default={})) -> dict:
-        return overleaf.sync(d.cfg, allow_push=body.get("push", True)).as_dict()
+        return publish.sync(d.cfg, allow_push=body.get("push", True)).as_dict()
 
     @app.post("/api/git/rebase/{action}")
     def git_rebase(action: str) -> dict:
         if action == "continue":
-            return overleaf.continue_rebase(d.cfg).as_dict()
+            return publish.continue_rebase(d.cfg).as_dict()
         if action == "abort":
-            return overleaf.abort_rebase(d.cfg).as_dict()
+            return publish.abort_rebase(d.cfg).as_dict()
         raise HTTPException(400, "action must be continue or abort")

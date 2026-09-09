@@ -79,12 +79,20 @@ export type GitStatus = {
   files: { path: string; index: string; worktree: string }[]
   worktrees: { path: string; branch: string }[]
   log: { sha: string; author: string; ts: number; subject: string }[]
-  overleaf: {
+  publish: {
     branch: string
     on_main: boolean
     clean: boolean
     remote: string
     remote_branch: string
+    /** Where the remote stands, read locally: `ready` means we hold a ref for
+     *  its branch and the counts are real, `unpushed` that this machine has
+     *  never seen that branch on it, `no_remote` that git has no remote by
+     *  that name — ordinary for a new project. */
+    state: 'ready' | 'unpushed' | 'no_remote'
+    /** Why Sync cannot run right now, or null when it can. The backend owns
+     *  this sentence: pressing Sync would refuse with exactly these words. */
+    blocked: string | null
     ahead: number | null
     behind: number | null
     conflicts: string[]
@@ -93,10 +101,15 @@ export type GitStatus = {
 
 export type Config = {
   paper_repo: string
-  code_mirror: string
+  /** Null when the project has no companion codebase, which is the usual case. */
+  code_mirror: string | null
   main_branch: string
   main_tex: string
-  overleaf: string
+  /** Whether `main_tex` is really there. Everything LaTeX — the PDF, SyncTeX,
+   *  `\cite` completion — is hidden rather than offered when it is not. */
+  builds_pdf: boolean
+  /** `remote/branch`, the place Sync pushes to. */
+  publish: string
   max_concurrent_sessions: number
   latexdiff: boolean
   bind: string

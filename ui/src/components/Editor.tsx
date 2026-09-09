@@ -2,12 +2,10 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
 import {
   HighlightStyle,
-  StreamLanguage,
   bracketMatching,
   indentOnInput,
   syntaxHighlighting,
 } from '@codemirror/language'
-import { stex } from '@codemirror/legacy-modes/mode/stex'
 import { highlightSelectionMatches, search, searchKeymap } from '@codemirror/search'
 import { Compartment, EditorState, StateEffect, StateField, Transaction } from '@codemirror/state'
 import {
@@ -24,6 +22,7 @@ import {
 import { tags as t } from '@lezer/highlight'
 import { api, type FileBody, type Selection } from '../api'
 import { latexCompletion } from '../editor/completion'
+import { languageFor } from '../editor/languages'
 import {
   CLEAN,
   type SaveStatus,
@@ -35,18 +34,30 @@ import {
 } from './editor/buffers'
 
 /* Overleaf's own source editor is CodeMirror 6, so this is the same editor,
- * with the LaTeX mode from @codemirror/legacy-modes rather than their Lezer
- * grammar. Colours follow their light theme: commands green, maths blue,
- * comments grey. */
-const latexHighlight = HighlightStyle.define([
-  { tag: t.tagName, color: 'var(--green-60)' },        // \command
+ * with the modes from @codemirror/legacy-modes rather than their Lezer
+ * grammars. Colours follow their light theme: commands green, maths blue,
+ * comments grey.
+ *
+ * One palette serves every language rather than one palette per mode, because
+ * what is being coloured is a tag and not a language — a comment is the same
+ * thing in Python as it is in LaTeX, and two palettes would be two owners for
+ * the question of what colour it is. The second block below is the tags the
+ * other modes reach for; of those, LaTeX emits only `number`, inside maths,
+ * where blue is what the surrounding maths already is. */
+const syntaxColours = HighlightStyle.define([
+  { tag: t.tagName, color: 'var(--green-60)' },        // \command, and <div>
   { tag: t.bracket, color: 'var(--neutral-60)' },
-  { tag: t.atom, color: 'var(--blue-50)' },            // $ maths $
+  { tag: t.atom, color: 'var(--blue-50)' },            // $ maths $, and true
   { tag: t.string, color: 'var(--blue-50)' },
   { tag: t.comment, color: 'var(--neutral-50)', fontStyle: 'italic' },
   { tag: t.keyword, color: 'var(--green-60)', fontWeight: '600' },
   { tag: t.variableName, color: 'var(--content-primary)' },
   { tag: t.className, color: 'var(--yellow-50)' },
+  { tag: t.number, color: 'var(--blue-50)' },
+  { tag: t.propertyName, color: 'var(--yellow-50)' },  // a key in JSON or BibTeX
+  { tag: t.attributeName, color: 'var(--yellow-50)' },
+  { tag: t.operator, color: 'var(--neutral-70)' },
+  { tag: t.meta, color: 'var(--neutral-60)' },         // a shebang, a decorator
 ])
 
 /** The one thing Ctrl +/- changes. Overleaf calls it the editor font size. */
@@ -175,6 +186,9 @@ export default function Editor({
   const view = useRef<EditorView | null>(null)
   const editable = useRef(new Compartment())
   const sizing = useRef(new Compartment())
+  /* The language is a compartment for the same reason the other two are: one
+   * editor shows every file, and `Makefile` is not LaTeX. */
+  const language = useRef(new Compartment())
 
   const [file, setFile] = useState<FileBody | null>(null)
   const [status, setStatus] = useState<SaveStatus>(CLEAN)
@@ -309,8 +323,12 @@ export default function Editor({
           bracketMatching(),
           search(),
           highlightSelectionMatches(),
-          StreamLanguage.define(stex),
-          syntaxHighlighting(latexHighlight),
+          // The file decides the language. Read from the ref rather than taken
+          // as an argument for the same reason the font size is: a state is
+          // kept and restored later, so what it was built with is only ever a
+          // starting value — `showState` sets both again on the way in.
+          language.current.of(languageFor(pathRef.current) ?? []),
+          syntaxHighlighting(syntaxColours),
           galleyTheme,
           EditorView.lineWrapping,
           // \cite{, \ref{ and the macros this paper defines for itself,
@@ -363,14 +381,20 @@ export default function Editor({
     [bumpSize, dismissBubble, refreshBubble, save],
   )
 
-  /** Put a state on screen. The font size lives in the state's own
-   *  compartment, so a state built at another size would drag that size back
-   *  with it; the scroll position is restored the same way. */
+  /** Put a state on screen. The font size and the language both live in the
+   *  state's own compartments, so a state built at another size, or for
+   *  another file, would drag that size and that language back with it — and a
+   *  stale language is silent, because the file looks right and only the
+   *  colours are lying. Both are set from the here and now; the scroll
+   *  position is restored the same way. */
   const showState = useCallback(
     (v: EditorView, state: EditorState, scroll: ScrollSnapshot | null) => {
       v.setState(state)
-      const resize = sizing.current.reconfigure(sizeTheme(fontSizeRef.current))
-      v.dispatch({ effects: scroll ? [resize, scroll] : [resize] })
+      const settings = [
+        sizing.current.reconfigure(sizeTheme(fontSizeRef.current)),
+        language.current.reconfigure(languageFor(pathRef.current) ?? []),
+      ]
+      v.dispatch({ effects: scroll ? [...settings, scroll] : settings })
     },
     [],
   )
@@ -576,6 +600,10 @@ export default function Editor({
   }
 
   const binary = file !== null && file.content === null
+  /* A file with no mode is shown as it is rather than coloured as something it
+   * is not, and the bar says so — otherwise the only difference between "plain
+   * text" and "highlighted" is that nothing happened to be highlighted. */
+  const plainText = file !== null && !binary && languageFor(path) === null
   const bubbleAt = bubble && place(bubble, BUBBLE_ROOM)
   const popoverAt = bubble && place(bubble, POPOVER_ROOM)
 
@@ -615,6 +643,7 @@ export default function Editor({
             read-only · {file.type === 'image' ? 'image' : 'not text'}
           </span>
         )}
+        {plainText && <span className="muted small">plain text</span>}
         <span className="grow" />
         {unsavedElsewhere.length > 0 && (
           <span className="muted small" title={unsavedElsewhere.join('\n')}>

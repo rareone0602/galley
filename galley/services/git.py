@@ -36,12 +36,18 @@ class FileStatus:
 
 
 def run(repo: Path, *args: str, check: bool = True, timeout: float = 120) -> str:
-    proc = subprocess.run(
-        ["git", "-C", str(repo), *args],
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-    )
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(repo), *args],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as exc:
+        # A remote that accepts the connection and then says nothing hangs here
+        # for the full timeout. Every caller already handles GitError; letting
+        # this one escape as itself turns a slow network into a 500.
+        raise GitError(list(args), -1, f"gave up after {timeout:g}s with no answer") from exc
     if check and proc.returncode != 0:
         raise GitError(list(args), proc.returncode, proc.stderr)
     return proc.stdout

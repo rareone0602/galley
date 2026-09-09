@@ -28,8 +28,8 @@ from ..config import Config, child_env
 from ..db import Database
 from . import worktree
 
-SYSTEM_APPENDIX = """
-You are working inside Galley, on your own branch of a paper repository.
+SYSTEM_RULES = """
+You are working inside Galley, on your own branch of a writing repository.
 
 Your job is to write a patch, and only that.
 
@@ -38,16 +38,31 @@ Your job is to write a patch, and only that.
   the manuscript. Many of your sentences will be rejected or rewritten; that is
   the design working, not a failure.
 - You never publish. No pushing, no committing on the main branch, no touching
-  the Overleaf remote. Those are the human's.
-- You never edit the codebase. It is mounted beside the paper so you can read
-  what the experiments did; edits outside your worktree are refused.
-- You never invent a number. Every figure in this paper is generated from a
-  measured artefact by the repository's own tooling. If a claim needs a number
-  you cannot trace to one, write the claim without it and say so.
-
-The codebase is mounted read-write beside the paper so you can read what the
-experiments actually did before you describe them.
+  the remote. Those are the human's.
+- You never invent a number. If a claim needs a figure you cannot trace to
+  something in front of you, write the claim without it and say so.
 """.strip()
+
+#: Added only when the config names a `code_mirror`. Saying this to an agent
+#: that has no such directory would be an instruction it cannot follow, and a
+#: standing invitation to hallucinate one.
+CODEBASE_RULE = """
+- You never edit the codebase. It is mounted beside the writing so you can read
+  what the experiments actually did before you describe them; edits outside
+  your worktree are refused.
+""".strip()
+
+
+def system_appendix(cfg: Config) -> str:
+    """The rules the agent works under, and only the ones that are true here.
+
+    Composed rather than fixed because a Galley is one repository plus whatever
+    that repository happens to have. A paper with no companion codebase must
+    not be told there is one."""
+    rules = [SYSTEM_RULES]
+    if cfg.paths.code_mirror is not None:
+        rules.append(CODEBASE_RULE)
+    return "\n".join(rules)
 
 
 class SessionLimitReached(RuntimeError):
@@ -119,10 +134,10 @@ PATH_ARGS = ("file_path", "path", "notebook_path", "filePath")
 def writes_only_inside(worktree: Path):
     """Refuse anything but reading, and writing inside the session's checkout.
 
-    `add_dirs` grants access, not read-only access, and the codebase mounted
-    here is a live working tree with a campaign running in it. The agent's job
-    is to write a patch on its own branch, so the refusal is structural rather
-    than a request in the prompt.
+    `add_dirs` grants access, not read-only access, and anything mounted beside
+    the repository may be a live working tree with real work in it. The agent's
+    job is to write a patch on its own branch, so the refusal is structural
+    rather than a request in the prompt.
     """
 
     root = worktree.resolve()
@@ -134,9 +149,9 @@ def writes_only_inside(worktree: Path):
             return PermissionResultDeny(
                 message=(
                     f"{name} is not available in Galley. Your job here is to "
-                    "write prose into this worktree; reading the paper and the "
-                    "codebase is allowed, and Galley commits your work for you "
-                    "when the turn ends."
+                    "write prose into this worktree; reading is allowed "
+                    "anywhere you have been given, and Galley commits your "
+                    "work for you when the turn ends."
                 )
             )
         raw = next((args[k] for k in PATH_ARGS if args.get(k)), None)
@@ -149,10 +164,9 @@ def writes_only_inside(worktree: Path):
         except ValueError:
             return PermissionResultDeny(
                 message=(
-                    f"{target} is outside this session's worktree. Galley mounts "
-                    "the codebase so you can read what the experiments did, not "
-                    "so you can change it. Write only inside "
-                    f"{root}, and only prose for the paper."
+                    f"{target} is outside this session's worktree. Anything "
+                    "mounted beside it is there to be read, not changed. Write "
+                    f"only inside {root}, and only prose for the manuscript."
                 )
             )
         return PermissionResultAllow()
@@ -253,9 +267,15 @@ class AgentService:
         return ClaudeAgentOptions(
             cwd=row["worktree_path"],
             can_use_tool=writes_only_inside(Path(row["worktree_path"])),
-            add_dirs=[str(self.cfg.paths.code_mirror)],
+            # Empty unless the project names a codebase: `add_dirs` grants
+            # access, so an absent one must not become a path anyway.
+            add_dirs=[str(d) for d in (self.cfg.paths.code_mirror,) if d is not None],
             permission_mode="acceptEdits",
-            system_prompt={"type": "preset", "preset": "claude_code", "append": SYSTEM_APPENDIX},
+            system_prompt={
+                "type": "preset",
+                "preset": "claude_code",
+                "append": system_appendix(self.cfg),
+            },
             # The one that matters: an inherited ANTHROPIC_API_KEY silently
             # bills the API instead of the logged-in subscription.
             env=child_env(),
