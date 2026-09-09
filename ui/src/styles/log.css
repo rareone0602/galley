@@ -1,0 +1,24 @@
+/* -- session log ------------------------------------------------------- */
+
+.log { display: flex; flex-direction: column; gap: 10px; }
+.ev { border-left: 2px solid var(--border-divider); padding-left: 10px; }
+.ev .who {
+  font-size: 11px;
+  color: var(--content-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.ev.text.assistant { border-left-color: var(--bg-accent); }
+.ev.text p { margin: 3px 0; white-space: pre-wrap; }
+.ev.tool { border-left-color: var(--content-info); }
+.ev.tool .name { font-family: var(--mono); font-size: var(--fs-sm); color: var(--content-info); }
+.ev.tool details pre {
+  background: var(--bg-secondary);
+  padding: 6px 8px;
+  border-radius: var(--radius);
+  margin-top: 4px;
+  max-height: 260px;
+  overflow: auto;
+}
+.ev.err { border-left-color: var(--content-danger); color: var(--content-danger); }
+.ev.thinking { border-left-color: var(--neutral-30); color: var(--content-secondary); font-style: italic; }

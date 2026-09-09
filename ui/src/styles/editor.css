@@ -1,0 +1,72 @@
+/* -- the editor -------------------------------------------------------- */
+
+.editor-wrap { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.editor-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--border-divider);
+  background: var(--bg-secondary);
+  flex: none;
+}
+.editor-bar .path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.editor-bar .hint { display: none; }
+@media (min-width: 1100px) { .editor-bar .hint { display: inline; } }
+
+/* CodeMirror needs a height it can actually resolve. A percentage inside a
+   flex item is not one, so the host is pinned to the box instead. */
+.editor-host { position: relative; flex: 1; min-height: 0; }
+.cm-host { position: absolute; inset: 0; }
+.cm-editor { height: 100%; }
+.cm-editor .cm-scroller { overflow: auto; }
+
+.binary-view {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
+  background: var(--bg-secondary);
+  text-align: center;
+}
+.binary-view img { max-width: 100%; background: var(--white); box-shadow: 0 1px 3px rgba(27, 34, 44, 0.16); }
+.binary-view iframe.pdf { width: 100%; height: 100%; min-height: 400px; }
+
+/* Overleaf puts a bubble on the selection; this is the same gesture, asking
+   Claude instead of leaving a comment. */
+.ask-bubble {
+  position: absolute;
+  z-index: 5;
+  background: var(--bg-accent);
+  border-color: var(--bg-accent);
+  color: var(--white);
+  font-weight: 600;
+  box-shadow: 0 2px 6px rgba(27, 34, 44, 0.28);
+  padding: 4px 10px;
+}
+.ask-bubble:hover:not(:disabled) { background: var(--bg-accent-hover); }
+.ask-bubble .spark { margin-right: 4px; }
+
+.ask-popover {
+  position: absolute;
+  z-index: 6;
+  width: 330px;
+  background: var(--bg-primary);
+  border: 1px solid var(--neutral-30);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 14px rgba(27, 34, 44, 0.24);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ask-popover .quoted {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--content-secondary);
+  background: var(--bg-secondary);
+  border-left: 2px solid var(--bg-accent);
+  padding: 5px 7px;
+  max-height: 76px;
+  overflow: hidden;
+}

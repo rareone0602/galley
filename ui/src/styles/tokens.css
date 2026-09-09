@@ -1,0 +1,75 @@
+/* Galley, styled to sit alongside Overleaf.
+ *
+ * The palette is Overleaf's own design tokens, taken from
+ * services/web/frontend/stylesheets/foundations/tokens/colors.json — green-50
+ * #098842 for the accent, the neutral-10/20 greys for chrome, neutral-90 for
+ * text. Matching them is deliberate: this is a tool you use beside Overleaf,
+ * and a second visual language to learn would be a cost for no benefit.
+ */
+
+:root {
+  /* PrimitiveColor */
+  --white: #fff;
+  --neutral-10: #f4f5f6;
+  --neutral-20: #e7e9ee;
+  --neutral-30: #d0d5dd;
+  --neutral-40: #afb5c0;
+  --neutral-50: #8d96a5;
+  --neutral-60: #677283;
+  --neutral-70: #495365;
+  --neutral-80: #2f3a4c;
+  --neutral-90: #1b222c;
+  --green-10: #eaf6ef;
+  --green-50: #098842;
+  --green-60: #1e6b41;
+  --red-10: #f9f1f1;
+  --red-50: #b83a33;
+  --yellow-10: #fcf1e3;
+  --yellow-50: #8f5514;
+  --blue-10: #f1f4f9;
+  --blue-50: #366cbf;
+
+  /* semantic */
+  --bg-primary: var(--white);
+  --bg-secondary: var(--neutral-10);
+  --bg-tertiary: var(--neutral-20);
+  --bg-accent: var(--green-50);
+  --bg-accent-hover: var(--green-60);
+  --bg-accent-soft: var(--green-10);
+  --content-primary: var(--neutral-90);
+  --content-secondary: var(--neutral-70);
+  --content-placeholder: var(--neutral-60);
+  --content-disabled: var(--neutral-40);
+  --content-danger: var(--red-50);
+  --content-warning: var(--yellow-50);
+  --content-info: var(--blue-50);
+  --border-divider: var(--neutral-20);
+  --border-primary: var(--neutral-60);
+  --border-active: var(--blue-50);
+  --toolbar-bg: var(--neutral-90);
+  --toolbar-fg: var(--neutral-20);
+
+  --font: "Noto Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --mono: "Source Code Pro", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --fs-sm: 12px;
+  --fs: 14px;
+  --fs-lg: 16px;
+  --radius: 4px;
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+
+/* PanelGroup sets height:100% inline, and an inline style beats a class. That
+   100% has to resolve against something, so the chain from <html> down to
+   #root must have a real height or the whole app collapses to its content. */
+html, body, #root { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg-primary);
+  color: var(--content-primary);
+  font: var(--fs)/1.5 var(--font);
+  -webkit-font-smoothing: antialiased;
+}

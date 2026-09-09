@@ -1,0 +1,20 @@
+/* -- tables, badges, notices ------------------------------------------- */
+
+table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border-divider); vertical-align: top; }
+th {
+  color: var(--content-secondary);
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.notice { border-radius: var(--radius); padding: 8px 11px; font-size: var(--fs-sm); border: 1px solid; }
+.notice + .notice { margin-top: 8px; }
+.notice.warn { background: var(--yellow-10); color: var(--content-warning); border-color: var(--content-warning); }
+.notice.bad { background: var(--red-10); color: var(--content-danger); border-color: var(--content-danger); }
+.notice.good { background: var(--green-10); color: var(--green-60); border-color: var(--bg-accent); }
+.notice.info { background: var(--blue-10); color: var(--content-info); border-color: var(--content-info); }
+
+.empty { color: var(--content-secondary); text-align: center; padding: 40px 20px; font-size: var(--fs-sm); }

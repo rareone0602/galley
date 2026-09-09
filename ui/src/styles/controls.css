@@ -1,0 +1,44 @@
+/* -- controls ---------------------------------------------------------- */
+
+button {
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--content-primary);
+  background: var(--bg-primary);
+  border: 1px solid var(--neutral-30);
+  border-radius: var(--radius);
+  padding: 4px 10px;
+  cursor: pointer;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+button:hover:not(:disabled) { background: var(--bg-secondary); }
+button:focus-visible { outline: 2px solid var(--border-active); outline-offset: 1px; }
+button:disabled { color: var(--content-disabled); cursor: default; }
+button.primary {
+  background: var(--bg-accent);
+  border-color: var(--bg-accent);
+  color: var(--white);
+  font-weight: 600;
+}
+button.primary:hover:not(:disabled) { background: var(--bg-accent-hover); border-color: var(--bg-accent-hover); }
+button.primary:disabled { background: var(--content-disabled); border-color: var(--content-disabled); color: var(--white); }
+button.tiny { padding: 2px 8px; font-size: var(--fs-sm); }
+
+input, textarea, select {
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--content-primary);
+  background: var(--bg-primary);
+  border: 1px solid var(--neutral-30);
+  border-radius: var(--radius);
+  padding: 6px 8px;
+  width: 100%;
+}
+input:focus, textarea:focus { outline: none; border-color: var(--border-active); }
+input::placeholder, textarea::placeholder { color: var(--content-placeholder); }
+textarea { font-family: var(--font); resize: vertical; }
+
+code, pre { font-family: var(--mono); font-size: var(--fs-sm); }
+pre { margin: 0; white-space: pre-wrap; word-break: break-word; }
+a { color: var(--green-60); }

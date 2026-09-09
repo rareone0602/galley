@@ -1,0 +1,33 @@
+/* -- file tree --------------------------------------------------------- */
+
+.filetree { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.filetree-search { padding: 6px 8px; flex: none; }
+.filetree-search input { font-size: 11px; padding: 4px 7px; background: var(--bg-primary); }
+
+.fnode {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px 3px 0;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  user-select: none;
+  border-left: 3px solid transparent;
+  white-space: nowrap;
+}
+.fnode:hover { background: var(--bg-tertiary); }
+.fnode.on { background: var(--white); border-left-color: var(--bg-accent); font-weight: 600; }
+.fnode.dir { color: var(--content-secondary); }
+.fnode .twist { width: 10px; flex: none; font-size: 9px; color: var(--content-placeholder); }
+.fnode .ficon { width: 14px; flex: none; text-align: center; font-size: 11px; }
+.fnode .ficon.tex { color: var(--green-60); font-weight: 700; }
+.fnode .fname { overflow: hidden; text-overflow: ellipsis; }
+/* An unsaved file is marked the way an editor tab marks one. */
+.fnode .dirty {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--content-warning);
+  flex: none;
+  margin-left: auto;
+}

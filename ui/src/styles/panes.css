@@ -1,0 +1,94 @@
+/* -- tabs and panes ---------------------------------------------------- */
+
+.tabs {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 0 8px;
+  height: 38px;
+  flex: none;
+  border-bottom: 1px solid var(--border-divider);
+  background: var(--bg-primary);
+}
+.tabs button {
+  border: none;
+  background: none;
+  border-radius: 0;
+  border-bottom: 2px solid transparent;
+  padding: 0 12px;
+  height: 100%;
+  color: var(--content-secondary);
+  font-size: var(--fs-sm);
+}
+.tabs button:hover:not(:disabled) { background: var(--bg-secondary); }
+.tabs button.on { color: var(--content-primary); border-bottom-color: var(--bg-accent); font-weight: 600; }
+.tabs .spacer { flex: 1; }
+.tabs .branch {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--content-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 40%;
+  padding-right: 8px;
+}
+.pane { flex: 1; overflow: auto; padding: 14px 16px; min-height: 0; background: var(--bg-primary); }
+/* The editor and the review both manage their own scrolling and chrome. */
+.pane.flush { padding: 0; overflow: hidden; display: flex; flex-direction: column; }
+
+.tabs button .count,
+.filepicker button .count {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: var(--bg-accent);
+  color: var(--white);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 15px;
+  vertical-align: 1px;
+}
+.chip {
+  font-family: var(--mono);
+  font-size: 10px;
+  background: var(--bg-tertiary);
+  border-radius: 3px;
+  padding: 0 4px;
+  flex: none;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.badge.amber {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 700;
+  color: var(--content-warning);
+  background: var(--yellow-10);
+  border-radius: 3px;
+  padding: 1px 5px;
+}
+
+.card {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-divider);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-bottom: 12px;
+}
+.card h3 {
+  margin: 0 0 8px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--content-secondary);
+}
+.row { display: flex; gap: 8px; align-items: center; }
+.grow { flex: 1; }
+.muted { color: var(--content-secondary); }
+.small { font-size: var(--fs-sm); }
+.mono { font-family: var(--mono); font-size: var(--fs-sm); }

@@ -1,0 +1,45 @@
+/* -- the PDF, drawn by PDF.js ------------------------------------------ */
+
+.pdf-zoom {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  padding: 0 2px 6px;
+}
+.pdf-zoom .muted { white-space: nowrap; }
+.pdf-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 10px;
+}
+.pdf-page {
+  position: relative;
+  background: var(--white);
+  box-shadow: 0 1px 4px rgba(27, 34, 44, 0.22);
+  flex: none;
+}
+.pdf-page canvas { display: block; }
+.pdf-page-number {
+  position: absolute;
+  right: 4px;
+  bottom: 2px;
+  font-size: 10px;
+  color: var(--content-disabled);
+  background: rgba(255, 255, 255, 0.8);
+  padding: 0 3px;
+  border-radius: 2px;
+  pointer-events: none;
+}
+
+/* Arriving from the PDF: show where you landed, then get out of the way. */
+.cm-jump-flash { animation: jump-flash 1.6s ease-out; }
+@keyframes jump-flash {
+  0%, 45% { background-color: rgba(9, 136, 66, 0.28); }
+  100% { background-color: transparent; }
+}

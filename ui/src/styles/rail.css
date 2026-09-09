@@ -1,0 +1,59 @@
+/* -- rail -------------------------------------------------------------- */
+
+.rail { background: var(--bg-secondary); }
+.rail-section {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg-secondary);
+}
+.rail-head {
+  padding: 10px 12px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--content-secondary);
+  border-bottom: 1px solid var(--border-divider);
+}
+.new-session { padding: 8px 10px; border-bottom: 1px solid var(--border-divider); flex: none; }
+.new-session button { width: 100%; margin-top: 6px; }
+.rail-section .scroll { overflow-y: auto; flex: 1; min-height: 0; }
+.rail-foot {
+  padding: 8px 12px;
+  border-top: 1px solid var(--border-divider);
+  display: flex;
+  gap: 6px;
+}
+
+.session {
+  padding: 8px 12px;
+  cursor: pointer;
+  border-left: 3px solid transparent;
+}
+.session:hover { background: var(--bg-tertiary); }
+.session.on { border-left-color: var(--bg-accent); background: var(--white); }
+.session .title {
+  font-size: var(--fs-sm);
+  margin-bottom: 2px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.session .meta {
+  font-size: 11px;
+  color: var(--content-secondary);
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+}
+.session .meta .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; flex: none; background: var(--content-disabled); }
+.dot.running { background: var(--bg-accent); animation: pulse 1.4s ease-in-out infinite; }
+.dot.error { background: var(--content-danger); }
+@keyframes pulse { 50% { opacity: 0.3; } }

@@ -1,0 +1,42 @@
+/* -- the PDF column ---------------------------------------------------- */
+
+.pdf-pane { background: var(--bg-secondary); }
+.pdf-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 38px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--border-divider);
+  background: var(--bg-primary);
+  flex: none;
+}
+.seg { display: flex; border: 1px solid var(--neutral-30); border-radius: var(--radius); overflow: hidden; }
+.seg button {
+  border: none;
+  border-radius: 0;
+  padding: 3px 10px;
+  font-size: var(--fs-sm);
+  color: var(--content-secondary);
+  background: var(--bg-primary);
+}
+.seg button + button { border-left: 1px solid var(--neutral-30); }
+.seg button.on { background: var(--bg-accent-soft); color: var(--green-60); font-weight: 600; }
+.pdf-body {
+  flex: 1;
+  overflow: auto;
+  padding: 8px;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+iframe.pdf {
+  flex: 1;
+  width: 100%;
+  border: none;
+  border-radius: var(--radius);
+  background: var(--white);
+  min-height: 0;
+  box-shadow: 0 1px 3px rgba(27, 34, 44, 0.16);
+}

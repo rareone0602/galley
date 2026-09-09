@@ -1,0 +1,160 @@
+/* -- review: your text against Claude's -------------------------------- */
+
+.merge { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.merge-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--border-divider);
+  background: var(--bg-secondary);
+  flex: none;
+  min-width: 0;
+}
+.merge-bar.second { background: var(--bg-primary); }
+.merge-saved { margin: 8px 10px 0; flex: none; }
+
+.filepicker { display: flex; gap: 4px; overflow-x: auto; min-width: 0; }
+.filepicker button {
+  font-family: var(--mono);
+  font-size: 11px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--content-secondary);
+}
+.filepicker button.on {
+  background: var(--bg-primary);
+  border-color: var(--neutral-30);
+  color: var(--content-primary);
+  font-weight: 600;
+}
+
+.diff { flex: 1; overflow: auto; min-height: 0; }
+.diff-head, .drow { display: grid; grid-template-columns: 1fr 34px 1fr; }
+.diff.inline .drow { display: block; }
+.diff-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-divider);
+}
+.col-head {
+  padding: 5px 12px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--content-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.col-head.theirs { color: var(--green-60); }
+
+.drow .cell {
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  line-height: 1.65;
+  padding: 4px 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.drow .cell.equal { color: var(--content-secondary); }
+.drow.equal .cell { cursor: default; }
+.drow .fold {
+  color: var(--content-placeholder);
+  font-style: italic;
+  cursor: pointer;
+  border-bottom: 1px dotted var(--neutral-40);
+}
+
+.drow.change { border-top: 1px solid var(--border-divider); border-bottom: 1px solid var(--border-divider); }
+.drow.change .cell.old { background: var(--red-10); color: var(--content-danger); }
+.drow.change .cell.new { background: var(--green-10); color: var(--green-60); }
+.drow.change .cell .idx {
+  display: inline-block;
+  min-width: 18px;
+  margin-right: 6px;
+  color: var(--content-placeholder);
+  font-size: 10px;
+  user-select: none;
+}
+.drow.change .nothing { font-style: italic; opacity: 0.55; }
+/* Whichever side loses is dimmed, so the file you are about to write reads as
+   the solid one. */
+.drow.change:not(.accepted) .cell.new { opacity: 0.5; }
+.drow.change.accepted .cell.old { opacity: 0.45; }
+.drow.change.accepted .cell.old mark.del { text-decoration: line-through; }
+
+.drow .gutter {
+  background: var(--bg-secondary);
+  border-left: 1px solid var(--border-divider);
+  border-right: 1px solid var(--border-divider);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 4px 0;
+}
+.drow.equal .gutter { background: var(--bg-primary); }
+button.take {
+  width: 24px;
+  height: 22px;
+  padding: 0;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--content-secondary);
+}
+button.take.on { background: var(--bg-accent); border-color: var(--bg-accent); color: var(--white); }
+button.take:hover:not(.on) { border-color: var(--bg-accent); color: var(--green-60); }
+
+/* Inline: the same choices, stacked, for a narrow middle column. */
+.diff.inline .drow.change .cell.stacked { background: var(--bg-secondary); padding: 8px 12px; }
+.diff.inline .line { display: flex; gap: 8px; padding: 2px 0; }
+.diff.inline .line .marker { width: 12px; flex: none; color: var(--content-secondary); }
+.diff.inline .line.old { color: var(--content-danger); }
+.diff.inline .line.new { color: var(--green-60); }
+.diff.inline .drow.change:not(.accepted) .line.new { opacity: 0.5; }
+.diff.inline .drow.change.accepted .line.old { opacity: 0.45; text-decoration: line-through; }
+.diff.inline .controls { display: flex; gap: 8px; align-items: center; margin-top: 6px; padding-left: 20px; }
+
+mark.del { background: rgba(184, 58, 51, 0.18); color: var(--content-danger); border-radius: 2px; padding: 0 1px; }
+mark.ins { background: rgba(9, 136, 66, 0.18); color: var(--green-60); border-radius: 2px; padding: 0 1px; }
+
+/* -- a change you rewrote yourself ------------------------------------- */
+
+button.take.pen { font-size: 11px; }
+button.take.pen.on { background: var(--content-warning); border-color: var(--content-warning); }
+button.take:disabled { opacity: 0.4; }
+
+.drow.change .cell .tag {
+  display: block;
+  font-size: 10px;
+  font-family: var(--font);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  opacity: 0.75;
+  margin-bottom: 2px;
+}
+.drow.change .cell.rewritten { background: var(--yellow-10); color: var(--content-warning); }
+/* Once you have written your own, the proposal is only there for reference. */
+.drow.change .cell.muted-side { background: var(--bg-secondary); color: var(--content-secondary); opacity: 0.7; }
+.drow.change.rewritten { border-left: 3px solid var(--content-warning); }
+
+.drow.change.editing { display: block; border-left: 3px solid var(--content-warning); }
+.editing-cell {
+  padding: 8px 12px;
+  background: var(--bg-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.editing-cell textarea {
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  line-height: 1.65;
+  background: var(--bg-primary);
+  min-height: 60px;
+}

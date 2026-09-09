@@ -1,0 +1,19 @@
+/* Galley's stylesheet, one file per area of the screen.
+ *
+ * The order below is the cascade: tokens first, then chrome, then the panes.
+ * A new area of the UI gets its own file and one line here — nothing else in
+ * this directory has to change.
+ */
+
+@import './tokens.css';
+@import './controls.css';
+@import './shell.css';
+@import './rail.css';
+@import './panes.css';
+@import './log.css';
+@import './pdf.css';
+@import './notices.css';
+@import './tree.css';
+@import './editor.css';
+@import './merge.css';
+@import './pdf-viewer.css';
