@@ -1,0 +1,908 @@
+<title>Galley Architecture</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Spectral:ital,wght@0,400;0,600;0,700;1,400&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+
+<style>
+:root{
+  /* palette: matplotlib tab10, the cycle every figure in the paper already uses */
+  --c-blue:#1f77b4;
+  --c-orange:#ff7f0e;
+  --c-green:#2ca02c;
+  --c-red:#d62728;
+
+  --accent:#17608f;
+  --accent-soft:#e8f1f8;
+  --accent-line:#b9d6e9;
+
+  --bg:#f7f9fb;
+  --surface:#ffffff;
+  --surface-2:#eef1f5;
+  --ink:#14181d;
+  --ink-2:#454d57;
+  --ink-3:#6d7681;
+  --rule:#dfe4ea;
+  --rule-strong:#c4ccd5;
+
+  --add:#217a21; --add-bg:#e9f5e9; --add-line:#b5ddb5;
+  --del:#b81f20; --del-bg:#fbeaea; --del-line:#eec0c0;
+  --queued:#a75f06; --queued-bg:#fdf0e2; --queued-line:#f0cfa4;
+
+  --code-bg:#eef1f5;
+  --shadow: 0 1px 2px rgba(20,24,29,.05), 0 6px 20px -12px rgba(20,24,29,.18);
+
+  --f-display:"Spectral", Georgia, "Times New Roman", serif;
+  --f-body:"IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --f-mono:"IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --measure: 68ch;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --accent:#6bb0de;
+    --accent-soft:#14252f;
+    --accent-line:#2b4d63;
+
+    --bg:#0f1216;
+    --surface:#161a20;
+    --surface-2:#1c2128;
+    --ink:#e5e9ee;
+    --ink-2:#a6aeb9;
+    --ink-3:#79828d;
+    --rule:#262c34;
+    --rule-strong:#39424c;
+
+    --add:#5cc95c; --add-bg:#132316; --add-line:#245c2a;
+    --del:#f07071; --del-bg:#281618; --del-line:#5e2a2c;
+    --queued:#f0a038; --queued-bg:#2a1e0e; --queued-line:#5f4218;
+
+    --c-blue:#5ba7d8;
+    --c-orange:#f0932b;
+    --c-green:#5cc95c;
+    --c-red:#f07071;
+
+    --code-bg:#1a1f26;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px -14px rgba(0,0,0,.7);
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"]{
+  --accent:#6bb0de;
+  --accent-soft:#14252f;
+  --accent-line:#2b4d63;
+
+  --bg:#0f1216;
+  --surface:#161a20;
+  --surface-2:#1c2128;
+  --ink:#e5e9ee;
+  --ink-2:#a6aeb9;
+  --ink-3:#79828d;
+  --rule:#262c34;
+  --rule-strong:#39424c;
+
+  --add:#5cc95c; --add-bg:#132316; --add-line:#245c2a;
+  --del:#f07071; --del-bg:#281618; --del-line:#5e2a2c;
+  --queued:#f0a038; --queued-bg:#2a1e0e; --queued-line:#5f4218;
+
+  --c-blue:#5ba7d8;
+  --c-orange:#f0932b;
+  --c-green:#5cc95c;
+  --c-red:#f07071;
+
+  --code-bg:#1a1f26;
+  --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px -14px rgba(0,0,0,.7);
+  color-scheme: dark;
+}
+
+*{box-sizing:border-box}
+body{
+  background:var(--bg);
+  color:var(--ink);
+  font-family:var(--f-body);
+  font-size:15.5px;
+  line-height:1.62;
+  -webkit-font-smoothing:antialiased;
+}
+
+/* ---------- shell ---------- */
+.shell{
+  max-width:1200px;
+  margin:0 auto;
+  padding:0 28px 96px;
+  display:grid;
+  grid-template-columns: 186px minmax(0,1fr);
+  gap:56px;
+  align-items:start;
+}
+@media (max-width:1020px){
+  .shell{grid-template-columns:minmax(0,1fr); gap:0}
+}
+
+/* ---------- masthead ---------- */
+.masthead{
+  grid-column:1/-1;
+  border-bottom:1px solid var(--rule-strong);
+  padding:52px 0 28px;
+  margin-bottom:40px;
+}
+.eyebrow{
+  font-family:var(--f-mono);
+  font-size:11.5px;
+  font-weight:500;
+  letter-spacing:.14em;
+  text-transform:uppercase;
+  color:var(--accent);
+  margin:0 0 14px;
+}
+h1{
+  font-family:var(--f-display);
+  font-weight:700;
+  font-size:clamp(2.5rem,6vw,3.9rem);
+  line-height:1.02;
+  letter-spacing:-.02em;
+  margin:0 0 6px;
+  text-wrap:balance;
+}
+.deck{
+  font-family:var(--f-display);
+  font-style:italic;
+  font-size:clamp(1.05rem,2.2vw,1.32rem);
+  color:var(--ink-2);
+  margin:0;
+  max-width:52ch;
+  line-height:1.45;
+}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:26px}
+.chip{
+  font-family:var(--f-mono);
+  font-size:11.5px;
+  letter-spacing:.02em;
+  padding:4px 9px;
+  border:1px solid var(--rule-strong);
+  border-radius:3px;
+  color:var(--ink-2);
+  background:var(--surface);
+  white-space:nowrap;
+}
+.chip b{color:var(--ink);font-weight:600}
+
+/* ---------- rail ---------- */
+.rail{position:sticky; top:24px; padding-top:4px}
+@media (max-width:1020px){
+  .rail{position:static; margin-bottom:40px; padding-bottom:28px; border-bottom:1px solid var(--rule)}
+}
+.rail-title{
+  font-family:var(--f-mono);
+  font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--ink-3);margin:0 0 12px;
+}
+.rail ol{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
+@media (max-width:1020px){.rail ol{flex-direction:row;flex-wrap:wrap;gap:6px}}
+.rail a{
+  display:block;
+  font-size:13.2px;
+  color:var(--ink-2);
+  text-decoration:none;
+  padding:3px 0;
+  border-left:2px solid transparent;
+  padding-left:11px;
+  margin-left:-11px;
+  line-height:1.35;
+}
+@media (max-width:1020px){
+  .rail a{border-left:none;border:1px solid var(--rule);border-radius:3px;padding:3px 9px;margin:0}
+}
+.rail a:hover{color:var(--accent);border-left-color:var(--accent-line)}
+.rail a .n{font-family:var(--f-mono);font-size:11px;color:var(--ink-3);margin-right:7px}
+
+/* ---------- prose ---------- */
+main{min-width:0}
+section{margin-bottom:60px; scroll-margin-top:20px}
+h2{
+  font-family:var(--f-display);
+  font-size:1.62rem;
+  font-weight:600;
+  letter-spacing:-.012em;
+  line-height:1.2;
+  margin:0 0 4px;
+  text-wrap:balance;
+  display:flex;align-items:baseline;gap:12px;
+}
+h2 .num{
+  font-family:var(--f-mono);
+  font-size:.78rem;
+  font-weight:500;
+  color:var(--accent);
+  letter-spacing:.06em;
+  flex:none;
+}
+.sub{
+  font-size:13.4px;color:var(--ink-3);margin:0 0 22px;
+  padding-left:calc(.78rem * 2.6);
+}
+@media (max-width:600px){.sub{padding-left:0}}
+h3{
+  font-family:var(--f-body);
+  font-size:.94rem;font-weight:600;letter-spacing:.005em;
+  margin:30px 0 8px;color:var(--ink);
+}
+p{margin:0 0 14px;max-width:var(--measure)}
+ul,ol.body{margin:0 0 14px;padding-left:20px;max-width:var(--measure)}
+li{margin-bottom:6px}
+a{color:var(--accent)}
+strong{font-weight:600;color:var(--ink)}
+code{
+  font-family:var(--f-mono);
+  font-size:.855em;
+  background:var(--code-bg);
+  padding:1.5px 5px;
+  border-radius:3px;
+  color:var(--ink);
+  word-break:break-word;
+}
+pre{
+  font-family:var(--f-mono);
+  font-size:12.6px;
+  line-height:1.62;
+  background:var(--surface);
+  border:1px solid var(--rule);
+  border-radius:5px;
+  padding:16px 18px;
+  overflow-x:auto;
+  margin:0 0 18px;
+  color:var(--ink-2);
+  box-shadow:var(--shadow);
+}
+pre code{background:none;padding:0;font-size:inherit}
+pre .cm{color:var(--ink-3);font-style:italic}
+pre .kw{color:var(--accent);font-weight:500}
+pre .st{color:var(--add)}
+
+.lede{
+  font-size:1.02rem;
+  color:var(--ink-2);
+  border-left:2px solid var(--accent-line);
+  padding-left:18px;
+  max-width:64ch;
+  margin-bottom:26px;
+}
+
+/* ---------- callout ---------- */
+.note{
+  border:1px solid var(--rule);
+  border-left:3px solid var(--accent);
+  background:var(--surface);
+  border-radius:0 5px 5px 0;
+  padding:14px 18px;
+  margin:0 0 18px;
+  max-width:var(--measure);
+  font-size:14.2px;
+  color:var(--ink-2);
+}
+.note.warn{border-left-color:var(--c-red)}
+.note .tag{
+  display:block;
+  font-family:var(--f-mono);
+  font-size:10.5px;letter-spacing:.13em;text-transform:uppercase;
+  color:var(--accent);margin-bottom:5px;font-weight:500;
+}
+.note.warn .tag{color:var(--del)}
+.note p:last-child{margin-bottom:0}
+
+/* ---------- decisions ---------- */
+.decisions{display:flex;flex-direction:column;gap:0;border-top:1px solid var(--rule)}
+.decision{
+  display:grid;
+  grid-template-columns:min-content minmax(0,1fr);
+  gap:0 22px;
+  padding:16px 0;
+  border-bottom:1px solid var(--rule);
+  align-items:baseline;
+}
+.decision .k{
+  font-family:var(--f-mono);
+  font-size:11px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--ink-3);white-space:nowrap;padding-top:3px;
+}
+.decision .v{min-width:0}
+.decision .v b{display:block;font-weight:600;font-size:15px;margin-bottom:2px}
+.decision .v span{font-size:13.6px;color:var(--ink-2);display:block;max-width:60ch}
+@media (max-width:640px){
+  .decision{grid-template-columns:1fr;gap:6px}
+}
+
+/* ---------- topology diagram ---------- */
+.topo{
+  display:grid;
+  grid-template-columns: minmax(240px,1.15fr) 118px minmax(210px,1fr);
+  grid-template-rows:auto auto;
+  gap:16px 0;
+  align-items:stretch;
+  margin:6px 0 20px;
+  min-width:660px;
+}
+.scroller{overflow-x:auto;padding-bottom:6px;margin-bottom:20px}
+.plane{
+  border:1px solid var(--rule-strong);
+  background:var(--surface);
+  border-radius:5px;
+  padding:13px 15px 15px;
+  box-shadow:var(--shadow);
+}
+.plane.mac{grid-row:1/3}
+.plane h4{
+  font-family:var(--f-mono);
+  font-size:10.5px;letter-spacing:.13em;text-transform:uppercase;
+  margin:0 0 11px;color:var(--ink-3);font-weight:500;
+  display:flex;justify-content:space-between;gap:10px;
+}
+.plane h4 em{font-style:normal;color:var(--accent);letter-spacing:.04em;text-transform:none;font-size:11px}
+.node{
+  font-family:var(--f-mono);
+  font-size:12px;
+  padding:7px 10px;
+  border:1px solid var(--rule);
+  border-radius:4px;
+  background:var(--bg);
+  margin-bottom:7px;
+  line-height:1.45;
+}
+.node:last-child{margin-bottom:0}
+.node .lab{display:block;font-family:var(--f-body);font-size:11px;color:var(--ink-3);margin-top:2px}
+.node.hot{border-color:var(--accent-line);background:var(--accent-soft)}
+.node.svc{border-style:dashed}
+.link{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:6px;padding:0 6px;text-align:center;
+}
+.link .line{
+  width:100%;height:1px;background:var(--rule-strong);position:relative;
+}
+.link .line::after{
+  content:"";position:absolute;right:0;top:-3px;
+  border-left:6px solid var(--rule-strong);
+  border-top:3.5px solid transparent;border-bottom:3.5px solid transparent;
+}
+.link .line.bi::before{
+  content:"";position:absolute;left:0;top:-3px;
+  border-right:6px solid var(--rule-strong);
+  border-top:3.5px solid transparent;border-bottom:3.5px solid transparent;
+}
+.link span{
+  font-family:var(--f-mono);font-size:10.5px;color:var(--ink-3);line-height:1.4;
+}
+
+/* ---------- job state machine ---------- */
+.states{
+  display:flex;align-items:stretch;gap:0;min-width:720px;margin-bottom:8px;
+}
+.state{
+  flex:1;
+  border:1px solid var(--rule);
+  border-right:none;
+  padding:10px 12px;
+  background:var(--surface);
+  min-width:0;
+}
+.state:first-child{border-radius:5px 0 0 5px}
+.state:last-child{border-right:1px solid var(--rule);border-radius:0 5px 5px 0}
+.state .nm{
+  font-family:var(--f-mono);font-size:11.5px;font-weight:600;letter-spacing:.03em;
+  display:block;margin-bottom:3px;
+}
+.state .who{font-size:11px;color:var(--ink-3);line-height:1.35;display:block}
+.state.s-local{border-top:3px solid var(--rule-strong)}
+.state.s-queue{border-top:3px solid var(--c-orange);background:var(--queued-bg)}
+.state.s-queue .nm{color:var(--queued)}
+.state.s-run{border-top:3px solid var(--c-blue);background:var(--accent-soft)}
+.state.s-run .nm{color:var(--accent)}
+.state.s-ok{border-top:3px solid var(--c-green);background:var(--add-bg)}
+.state.s-ok .nm{color:var(--add)}
+.state.s-back{border-top:3px solid var(--rule-strong)}
+
+/* ---------- tables ---------- */
+table{
+  border-collapse:collapse;width:100%;font-size:13.4px;min-width:560px;
+  background:var(--surface);
+}
+th,td{
+  text-align:left;padding:9px 14px;border-bottom:1px solid var(--rule);
+  vertical-align:top;
+}
+th{
+  font-family:var(--f-mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--ink-3);font-weight:500;border-bottom:1px solid var(--rule-strong);
+  white-space:nowrap;
+}
+td code{font-size:12.4px;white-space:nowrap}
+tr:last-child td{border-bottom:none}
+td.desc{color:var(--ink-2)}
+.tbl-wrap{
+  overflow-x:auto;border:1px solid var(--rule);border-radius:5px;
+  margin-bottom:18px;box-shadow:var(--shadow);
+}
+
+/* ---------- milestones ---------- */
+.miles{display:flex;flex-direction:column;gap:0;counter-reset:m}
+.mile{
+  display:grid;grid-template-columns:44px minmax(0,1fr) auto;gap:0 20px;
+  padding:15px 0;border-bottom:1px solid var(--rule);align-items:baseline;
+}
+.mile:first-child{border-top:1px solid var(--rule-strong)}
+.mile .id{
+  font-family:var(--f-mono);font-size:12px;font-weight:600;color:var(--accent);
+}
+.mile .body b{display:block;font-weight:600;font-size:14.6px;margin-bottom:3px}
+.mile .body span{font-size:13.3px;color:var(--ink-2);max-width:58ch;display:block}
+.mile .est{
+  font-family:var(--f-mono);font-size:11px;color:var(--ink-3);white-space:nowrap;
+  border:1px solid var(--rule);border-radius:3px;padding:2px 7px;
+}
+@media (max-width:640px){
+  .mile{grid-template-columns:34px minmax(0,1fr);gap:0 12px}
+  .mile .est{grid-column:2;margin-top:8px;justify-self:start}
+}
+
+/* ---------- risks ---------- */
+.risks{display:grid;grid-template-columns:repeat(auto-fit,minmax(268px,1fr));gap:14px}
+.risk{
+  border:1px solid var(--rule);border-radius:5px;padding:14px 16px;
+  background:var(--surface);
+}
+.risk .sev{
+  font-family:var(--f-mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;
+  padding:2px 7px;border-radius:3px;display:inline-block;margin-bottom:9px;font-weight:500;
+}
+.sev.hi{background:var(--del-bg);color:var(--del);border:1px solid var(--del-line)}
+.sev.md{background:var(--queued-bg);color:var(--queued);border:1px solid var(--queued-line)}
+.risk b{display:block;font-size:14px;font-weight:600;margin-bottom:5px}
+.risk p{font-size:13.2px;color:var(--ink-2);margin:0;max-width:none}
+
+/* ---------- diff sample ---------- */
+.difflines{
+  font-family:var(--f-mono);font-size:12.4px;line-height:1.7;
+  border:1px solid var(--rule);border-radius:5px;overflow:hidden;margin-bottom:8px;
+  background:var(--surface);
+}
+.difflines div{padding:2px 14px;white-space:pre-wrap}
+.difflines .d{background:var(--del-bg);color:var(--del)}
+.difflines .a{background:var(--add-bg);color:var(--add)}
+.difflines .ctx{color:var(--ink-3)}
+.difflines mark{background:transparent;font-weight:600;text-decoration:underline;text-underline-offset:2px;color:inherit}
+
+.caption{font-size:12.4px;color:var(--ink-3);margin:0 0 20px;max-width:var(--measure)}
+
+footer{
+  grid-column:1/-1;
+  border-top:1px solid var(--rule-strong);
+  margin-top:20px;padding-top:22px;
+  font-size:12.6px;color:var(--ink-3);
+  display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;
+}
+footer .f-mono{font-family:var(--f-mono);font-size:11.5px}
+
+a:focus-visible,.rail a:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:2px}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+
+<div class="shell">
+
+  <header class="masthead">
+    <p class="eyebrow">Design document · working name “Galley”</p>
+    <h1>Galley Architecture</h1>
+    <p class="deck">A local workbench for writing a paper with Claude, where experiments run on a cluster and every word that lands in the manuscript is one you accepted by hand.</p>
+    <div class="chips">
+      <span class="chip"><b>Backend</b> FastAPI · Python 3.11</span>
+      <span class="chip"><b>Frontend</b> Vite · React · TS</span>
+      <span class="chip"><b>Agent</b> claude-agent-sdk</span>
+      <span class="chip"><b>Compute</b> remote scheduler</span>
+      <span class="chip"><b>Remote</b> git.overleaf.com</span>
+    </div>
+  </header>
+
+  <nav class="rail" aria-label="Contents">
+    <p class="rail-title">Contents</p>
+    <ol>
+      <li><a href="#decisions"><span class="n">01</span>Decisions</a></li>
+      <li><a href="#topology"><span class="n">02</span>Topology</a></li>
+      <li><a href="#worktrees"><span class="n">03</span>Worktrees</a></li>
+      <li><a href="#jobs"><span class="n">04</span>Async jobs</a></li>
+      <li><a href="#tools"><span class="n">05</span>Tool surface</a></li>
+      <li><a href="#merge"><span class="n">06</span>Merge UX</a></li>
+      <li><a href="#numbers"><span class="n">07</span>Numbers</a></li>
+      <li><a href="#overleaf"><span class="n">08</span>Overleaf</a></li>
+      <li><a href="#model"><span class="n">09</span>Data &amp; API</a></li>
+      <li><a href="#milestones"><span class="n">10</span>Milestones</a></li>
+      <li><a href="#risks"><span class="n">11</span>Risks</a></li>
+    </ol>
+  </nav>
+
+  <main>
+
+    <!-- 01 -->
+    <section id="decisions">
+      <h2><span class="num">01</span>Decisions</h2>
+      <p class="sub">The five calls everything else follows from.</p>
+
+      <p class="lede">Two of these are load-bearing. Git worktrees mean you never invent a proposal format, and asynchronous jobs mean a queue wait can never block a Claude turn. The rest is plumbing around them.</p>
+
+      <div class="decisions">
+        <div class="decision">
+          <div class="k">Isolation</div>
+          <div class="v"><b>One git worktree per Claude session</b>
+          <span>Claude edits and commits on <code>claude/&lt;slug&gt;</code> in its own checkout. Your main working tree is never touched by an agent, so parallel sessions and rollback are free.</span></div>
+        </div>
+        <div class="decision">
+          <div class="k">Diffing</div>
+          <div class="v"><b>Git is the diff substrate; the UI is a view</b>
+          <span>The merge pane renders <code>git diff main...claude/&lt;slug&gt;</code>. No shadow copies, no bespoke patch format, no second source of truth about what changed.</span></div>
+        </div>
+        <div class="decision">
+          <div class="k">Code</div>
+          <div class="v"><b>Mirror the codebase locally, execute remotely</b>
+          <span>Clone the code repo onto the Mac so Claude reads and edits it with real Grep/Glob/Edit tools at local speed. Running it is a separate, explicit act that happens on the cluster.</span></div>
+        </div>
+        <div class="decision">
+          <div class="k">Jobs</div>
+          <div class="v"><b>Experiments are objects, not turns</b>
+          <span>A submitted job outlives the session that created it. Completion wakes a <em>new</em> Claude session with the results attached, rather than holding one open across a six-hour queue wait.</span></div>
+        </div>
+        <div class="decision">
+          <div class="k">Authority</div>
+          <div class="v"><b>Prose merges are manual; numbers are generated</b>
+          <span>You accept every sentence by hand. You never accept a number by hand — figures reach the PDF only through <code>\input{}</code> of a file built from a results artifact.</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 02 -->
+    <section id="topology">
+      <h2><span class="num">02</span>Topology</h2>
+      <p class="sub">Three places state lives, and exactly what crosses between them.</p>
+
+      <div class="scroller">
+        <div class="topo">
+          <div class="plane mac">
+            <h4>Your Mac <em>localhost:7878</em></h4>
+            <div class="node hot">paper/ <span class="lab">main worktree — yours alone</span></div>
+            <div class="node">paper/.worktrees/&lt;slug&gt;/ <span class="lab">one per Claude session, branch <code>claude/&lt;slug&gt;</code></span></div>
+            <div class="node">code-mirror/ <span class="lab">clone of the codebase, passed via <code>--add-dir</code></span></div>
+            <div class="node svc">galley-api <span class="lab">FastAPI · sessions, git, jobs, MCP</span></div>
+            <div class="node svc">galley-ui <span class="lab">React · log, merge pane, git panel, PDF</span></div>
+          </div>
+
+          <div class="link">
+            <span>ssh (ControlMaster)<br>rsync</span>
+            <div class="line bi"></div>
+            <span>submit · poll · pull</span>
+          </div>
+
+          <div class="plane">
+            <h4>Cluster <em>login + compute</em></h4>
+            <div class="node">$SCRATCH/galley/&lt;job&gt;/ <span class="lab">code checkout at pinned SHA</span></div>
+            <div class="node">sbatch · squeue · sacct <span class="lab">scheduler, no agent runs here</span></div>
+            <div class="node hot">artifacts/ <span class="lab">metrics.json, figures, logs</span></div>
+          </div>
+
+          <div class="link">
+            <span>git push<br>(main only)</span>
+            <div class="line"></div>
+            <span>pull --rebase first</span>
+          </div>
+
+          <div class="plane">
+            <h4>Overleaf <em>git bridge</em></h4>
+            <div class="node">git.overleaf.com/&lt;id&gt; <span class="lab">single branch: <code>master</code></span></div>
+            <div class="node">web editor <span class="lab">a second writer — assume it drifted</span></div>
+          </div>
+        </div>
+      </div>
+      <p class="caption">No agent process runs on the cluster. The cluster is a job executor reached over SSH; all reasoning about code happens against the local mirror.</p>
+
+      <div class="note">
+        <span class="tag">Why mirror instead of running Claude on the login node</span>
+        <p>Agents on a login node are a bad trade: shared-machine credential storage, restrictive process policies, and no LaTeX toolchain. Mirroring costs you one <code>git pull</code> and buys Claude full-speed local tools over the whole codebase.</p>
+      </div>
+    </section>
+
+    <!-- 03 -->
+    <section id="worktrees">
+      <h2><span class="num">03</span>Worktrees</h2>
+      <p class="sub">Session isolation, and how the agent is actually launched.</p>
+
+      <p>Creating a session is three git commands and a subprocess. The worktree is disposable; the branch is the record.</p>
+
+<pre><code><span class="cm"># galley/services/worktree.py</span>
+git -C paper worktree add .worktrees/<span class="st">ablation-lr</span> -b claude/<span class="st">ablation-lr</span> main
+git -C paper/.worktrees/<span class="st">ablation-lr</span> config user.name  "Claude (galley)"
+git -C paper/.worktrees/<span class="st">ablation-lr</span> config user.email "galley@localhost"</code></pre>
+
+      <p>Then the agent, scoped to that worktree with the code mirror mounted read-write:</p>
+
+<pre><code><span class="cm"># galley/services/agent.py</span>
+<span class="kw">from</span> claude_agent_sdk <span class="kw">import</span> query, ClaudeAgentOptions
+
+env = os.environ.copy()
+env.pop(<span class="st">"ANTHROPIC_API_KEY"</span>, <span class="kw">None</span>)   <span class="cm"># else it bills the API, not your plan</span>
+env.pop(<span class="st">"ANTHROPIC_AUTH_TOKEN"</span>, <span class="kw">None</span>)
+
+opts = ClaudeAgentOptions(
+    cwd=worktree_path,
+    add_dirs=[CODE_MIRROR],
+    permission_mode=<span class="st">"acceptEdits"</span>,
+    mcp_servers={<span class="st">"galley"</span>: {<span class="st">"type"</span>: <span class="st">"http"</span>,
+                 <span class="st">"url"</span>: <span class="st">"http://127.0.0.1:7878/mcp"</span>}},
+    env=env,
+)
+<span class="kw">async for</span> msg <span class="kw">in</span> query(prompt=prompt, options=opts):
+    <span class="kw">await</span> bus.publish(session_id, msg)   <span class="cm"># -&gt; SSE -&gt; UI log</span></code></pre>
+
+      <div class="note warn">
+        <span class="tag">Subscription auth footgun</span>
+        <p>The SDK and CLI both use your logged-in Claude credentials <em>only</em> when no API key is present in the child environment. If <code>ANTHROPIC_API_KEY</code> is exported in your shell profile it silently inherits and bills per-token instead. Strip it explicitly at spawn and assert on it at startup.</p>
+      </div>
+
+      <p>Merging a session back is a normal git operation, which is the whole point — after you have accepted hunks in the merge pane, <code>paper/</code> holds ordinary uncommitted changes you commit yourself. The worktree is then removed and the branch kept as provenance.</p>
+    </section>
+
+    <!-- 04 -->
+    <section id="jobs">
+      <h2><span class="num">04</span>Async jobs</h2>
+      <p class="sub">The centerpiece. A scheduler queue is measured in hours; a Claude turn is measured in minutes.</p>
+
+      <p class="lede">This is the constraint the whole app is shaped around. If <code>submit_job</code> blocks until results exist, every session either times out or burns your rate limit idling. So submission returns immediately, and completion is an <em>event</em> that starts new work.</p>
+
+      <div class="scroller">
+        <div class="states">
+          <div class="state s-local"><span class="nm">DRAFT</span><span class="who">Claude writes the run script + config into the code mirror, commits</span></div>
+          <div class="state s-local"><span class="nm">SUBMITTED</span><span class="who">rsync at pinned SHA, <code>sbatch</code>, capture scheduler id</span></div>
+          <div class="state s-queue"><span class="nm">PENDING</span><span class="who">poller runs <code>squeue -j</code>; the session that submitted has already ended</span></div>
+          <div class="state s-run"><span class="nm">RUNNING</span><span class="who">tail stdout on demand; UI streams the last N lines</span></div>
+          <div class="state s-ok"><span class="nm">COMPLETED</span><span class="who"><code>sacct</code> exit 0 → pull <code>artifacts/</code> back over rsync</span></div>
+          <div class="state s-back"><span class="nm">HANDOFF</span><span class="who">new Claude session opens with metrics.json in the prompt</span></div>
+        </div>
+      </div>
+      <p class="caption">A failed job takes the same path with the tail of stderr substituted for metrics, into a session prompted to diagnose rather than to write.</p>
+
+      <h3>The poller</h3>
+      <p>One asyncio task, not a thread per job. Poll interval backs off by state — thirty seconds while <code>PENDING</code>, five minutes while <code>RUNNING</code> — and every transition is written to SQLite before it is published to the UI, so a backend restart resumes cleanly.</p>
+
+<pre><code><span class="cm"># squeue is authoritative while queued; sacct after the job leaves the queue</span>
+ssh cluster <span class="st">"squeue -j $JID -h -o %T"</span>          <span class="cm"># PENDING|RUNNING|(empty)</span>
+ssh cluster <span class="st">"sacct -j $JID -n -X -o State,ExitCode,Elapsed"</span></code></pre>
+
+      <div class="note">
+        <span class="tag">Reproducibility comes free here</span>
+        <p>Because submission rsyncs a pinned commit rather than your dirty working copy, every artifact carries the exact SHA that produced it. Record it on the job row and print it into the results file — that is what makes the generated table in <a href="#numbers">§07</a> trustworthy months later.</p>
+      </div>
+
+      <h3>SSH without pain</h3>
+      <p>Shell out to the system <code>ssh</code> rather than reaching for Paramiko: you inherit your existing <code>~/.ssh/config</code>, jump hosts, and hardware-key agents for free. Add a <code>ControlMaster</code> block for the cluster host so a hundred status polls reuse one authenticated connection instead of paying a handshake each.</p>
+    </section>
+
+    <!-- 05 -->
+    <section id="tools">
+      <h2><span class="num">05</span>Tool surface</h2>
+      <p class="sub">What the backend exposes to Claude over MCP, and what it deliberately does not.</p>
+
+      <p>The API and the agent tools are the same FastAPI app. Claude gets a narrow, verb-shaped surface — enough to run science, not enough to publish.</p>
+
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>Tool</th><th>Arguments</th><th>Returns / effect</th></tr></thead>
+          <tbody>
+            <tr><td><code>submit_job</code></td><td class="desc">script, config, resources, note</td><td class="desc">Pins HEAD, rsyncs, <code>sbatch</code>, returns a job id <em>immediately</em>. Never waits.</td></tr>
+            <tr><td><code>job_status</code></td><td class="desc">job_id</td><td class="desc">State, elapsed, exit code, last 40 lines of stdout.</td></tr>
+            <tr><td><code>list_jobs</code></td><td class="desc">state?, since?</td><td class="desc">Recent jobs with their notes — lets a fresh session orient itself.</td></tr>
+            <tr><td><code>read_results</code></td><td class="desc">job_id, path?</td><td class="desc">Reads a pulled artifact from the local cache. Fails loudly if not yet fetched.</td></tr>
+            <tr><td><code>compile_paper</code></td><td class="desc">—</td><td class="desc">Runs <code>latexmk -pdf</code>, returns errors and undefined references only.</td></tr>
+            <tr><td><code>write_result_table</code></td><td class="desc">job_ids, table_key</td><td class="desc">Regenerates a <code>tables/*.tex</code> from artifacts. The only sanctioned path for numbers.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note warn">
+        <span class="tag">Not exposed, on purpose</span>
+        <p>No <code>git push</code>, no <code>git commit</code> on <code>main</code>, no Overleaf credentials, no <code>scancel</code> for jobs the session did not create. Publishing and cancelling are yours. Bind the MCP server to <code>127.0.0.1</code> only.</p>
+      </div>
+    </section>
+
+    <!-- 06 -->
+    <section id="merge">
+      <h2><span class="num">06</span>Merge UX</h2>
+      <p class="sub">Line diffs are useless on LaTeX. This section is why the app exists.</p>
+
+      <p>A paragraph of LaTeX is frequently one very long line. A stock line-based diff reports it as wholly deleted and wholly re-added, which tells you nothing. Galley diffs at sentence granularity with word-level emphasis inside each changed sentence:</p>
+
+      <div class="difflines">
+        <div class="ctx">  We evaluate on three benchmarks (§4.1).</div>
+        <div class="d">− The model improves over the baseline by a <mark>large margin</mark> across all settings.</div>
+        <div class="a">+ The model improves over the baseline by <mark>4.2 BLEU on average</mark>, though the gain <mark>narrows to 0.8 on low-resource pairs</mark>.</div>
+        <div class="ctx">  We ablate the retrieval component in Table~\ref{tab:ablation}.</div>
+      </div>
+      <p class="caption">Sentence-level segmentation with intra-sentence word highlighting. Accept and reject act on the sentence, not the line.</p>
+
+      <h3>Segmentation is a real module, with tests</h3>
+      <p>Splitting LaTeX into sentences is where this gets fiddly. The tokenizer must not break on <code>e.g.</code>, <code>i.e.</code>, <code>et al.</code>, <code>Fig.</code>, <code>Eq.</code>, <code>cf.</code>, <code>vs.</code>, decimals, or a period inside <code>\cite{}</code>; must treat inline math <code>$...$</code> as opaque; and must pass <code>%</code> comments, <code>\begin/\end</code> blocks, and display math through as atomic units. Write it standalone against fixture files from your actual paper before wiring any UI to it.</p>
+
+      <h3>Applying the merge</h3>
+      <p>Do <em>not</em> hand-roll patch application. The merge pane holds the full resulting buffer, so accepting hunks is a client-side edit and the backend simply writes the final text to the file in <code>paper/</code>. Git is used to <em>compute and display</em> the diff, never to apply a partial one — that sidesteps the entire class of patch-offset and context-mismatch bugs.</p>
+
+      <p><code>@codemirror/merge</code>'s <code>unifiedMergeView</code> gives per-chunk accept/reject controls out of the box; feed it the sentence-segmented text and supply your own word-diff for the inline marks.</p>
+
+      <h3>The second review surface</h3>
+      <p>Text merging catches wording. It does not catch <em>meaning</em>. You already have <code>latexdiff</code> installed — run it between the accepted state and the proposed state, compile, and show the marked-up PDF beside the merge pane. Reading the change as it will appear in print is how you catch a claim that got quietly strengthened.</p>
+
+<pre><code>latexdiff paper/main.tex .worktrees/ablation-lr/main.tex &gt; /tmp/diff.tex
+latexmk -pdf -interaction=nonstopmode -outdir=/tmp /tmp/diff.tex</code></pre>
+    </section>
+
+    <!-- 07 -->
+    <section id="numbers">
+      <h2><span class="num">07</span>Numbers</h2>
+      <p class="sub">A hallucinated figure must not be able to reach the PDF.</p>
+
+      <p>This is worth designing in from the first commit, because retrofitting it means auditing every number already in the manuscript. The rule: <strong>no numeral is ever typed into a <code>.tex</code> file by hand or by agent.</strong> The path is one-way.</p>
+
+<pre><code>cluster run  →  artifacts/metrics.json      <span class="cm">(pulled, immutable, carries git SHA)</span>
+             →  results/ablation-lr.json    <span class="cm">(committed to the paper repo)</span>
+             →  tables/ablation.tex         <span class="cm">(generated; never hand-edited)</span>
+             →  \input{tables/ablation}     <span class="cm">(the only reference in main.tex)</span></code></pre>
+
+      <p>What you review in the merge pane is therefore the JSON and the generated table together. If Claude invents a number, it appears as a <code>results/*.json</code> change with no corresponding job id — which the UI can flag mechanically, with no judgement required from you.</p>
+
+      <div class="note">
+        <span class="tag">Cheap enforcement</span>
+        <p>A pre-commit hook on the paper repo that rejects a diff touching <code>tables/</code> unless <code>results/</code> changed in the same commit. Twenty lines, and it makes the invariant structural rather than aspirational.</p>
+      </div>
+    </section>
+
+    <!-- 08 -->
+    <section id="overleaf">
+      <h2><span class="num">08</span>Overleaf</h2>
+      <p class="sub">Treat it as a dumb single-branch remote with a second writer attached.</p>
+
+      <p>The Overleaf git bridge is not a normal remote. It exposes one branch, <code>master</code>; force-push is unreliable; and the web editor means the remote may have moved since you last looked — you are collaborating with yourself.</p>
+
+      <p>So the git panel gets exactly one compound button, <strong>Sync</strong>, which does:</p>
+
+      <ol class="body">
+        <li>Refuse unless you are on <code>main</code> with a clean tree.</li>
+        <li><code>git pull --rebase overleaf master</code>.</li>
+        <li>On conflict, route the conflicted files into the <em>same</em> merge pane from <a href="#merge">§06</a> — the sentence-level tooling is exactly right for reconciling two prose edits, and it means you never learn a second conflict UI.</li>
+        <li><code>git push overleaf main:master</code>.</li>
+      </ol>
+
+      <p>Branches stay purely local. Claude's branches never go near the remote, so Overleaf only ever sees prose you already accepted.</p>
+    </section>
+
+    <!-- 09 -->
+    <section id="model">
+      <h2><span class="num">09</span>Data &amp; API</h2>
+      <p class="sub">SQLite, three tables, and the endpoints the UI needs.</p>
+
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>Table</th><th>Columns</th></tr></thead>
+          <tbody>
+            <tr><td><code>sessions</code></td><td class="desc"><code>id</code>, <code>claude_session_id</code>, <code>slug</code>, <code>branch</code>, <code>worktree_path</code>, <code>prompt</code>, <code>status</code>, <code>base_sha</code>, <code>created_at</code>, <code>ended_at</code></td></tr>
+            <tr><td><code>jobs</code></td><td class="desc"><code>id</code>, <code>session_id</code>, <code>scheduler_id</code>, <code>host</code>, <code>code_sha</code>, <code>submit_cmd</code>, <code>state</code>, <code>exit_code</code>, <code>artifacts_local</code>, <code>note</code>, <code>submitted_at</code>, <code>finished_at</code></td></tr>
+            <tr><td><code>events</code></td><td class="desc"><code>id</code>, <code>session_id</code>, <code>job_id</code>, <code>kind</code>, <code>payload_json</code>, <code>ts</code> — append-only; replayed to rebuild the UI log after a restart</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>Endpoint</th><th></th></tr></thead>
+          <tbody>
+            <tr><td><code>POST /sessions</code></td><td class="desc">Create worktree + branch, spawn the agent, return id</td></tr>
+            <tr><td><code>GET /sessions/{id}/events</code></td><td class="desc">SSE stream of agent messages and tool calls</td></tr>
+            <tr><td><code>POST /sessions/{id}/message</code></td><td class="desc">Follow-up turn, resuming the stored <code>claude_session_id</code></td></tr>
+            <tr><td><code>GET /diff</code></td><td class="desc">Sentence-segmented hunks for <code>base...head</code>, per file</td></tr>
+            <tr><td><code>PUT /files/{path}</code></td><td class="desc">Write the merged buffer into the main worktree</td></tr>
+            <tr><td><code>GET /git/status</code> · <code>POST /git/commit</code></td><td class="desc">Ordinary staging and committing on <code>main</code></td></tr>
+            <tr><td><code>POST /git/sync</code></td><td class="desc">The Overleaf compound operation from <a href="#overleaf">§08</a></td></tr>
+            <tr><td><code>GET /jobs</code> · <code>POST /jobs/{id}/fetch</code></td><td class="desc">Job board and manual artifact pull</td></tr>
+            <tr><td><code>POST /compile</code> · <code>GET /pdf</code></td><td class="desc">latexmk run and the resulting PDF</td></tr>
+            <tr><td><code>/mcp</code></td><td class="desc">The tool surface from <a href="#tools">§05</a>, same process, loopback only</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>Use plain <code>subprocess</code> around real <code>git</code> rather than GitPython or pygit2. Git's porcelain is stable, its plumbing (<code>--porcelain=v2</code>, <code>--numstat</code>) is designed for exactly this, and you avoid a library that will disagree with your terminal.</p>
+    </section>
+
+    <!-- 10 -->
+    <section id="milestones">
+      <h2><span class="num">10</span>Milestones</h2>
+      <p class="sub">Ordered so each stage is independently usable — this is a genuine sequence, not a checklist.</p>
+
+      <div class="miles">
+        <div class="mile">
+          <div class="id">M0</div>
+          <div class="body"><b>Environment and git service</b><span>Python 3.11 via <code>uv</code> (the SDK needs ≥3.10; your system 3.9 will not do). Worktree create/list/remove, status, diff. No UI yet.</span></div>
+          <div class="est">½ day</div>
+        </div>
+        <div class="mile">
+          <div class="id">M1</div>
+          <div class="body"><b>Sessions with a live log</b><span>Spawn the agent in a worktree, stream messages over SSE, render tool calls in the UI. Review with <code>git diff</code> in a terminal for now — this alone is already useful.</span></div>
+          <div class="est">1–2 days</div>
+        </div>
+        <div class="mile">
+          <div class="id">M2</div>
+          <div class="body"><b>Sentence tokenizer, standalone</b><span>Pure function, fixture-tested against your real <code>.tex</code>. Highest-risk component and it has no dependencies, so it gets built and proven in isolation.</span></div>
+          <div class="est">1 day</div>
+        </div>
+        <div class="mile">
+          <div class="id">M3</div>
+          <div class="body"><b>Merge pane</b><span><code>@codemirror/merge</code> over the segmented diff, accept/reject per sentence, write-back to the main worktree. The app becomes the thing you actually wanted.</span></div>
+          <div class="est">2 days</div>
+        </div>
+        <div class="mile">
+          <div class="id">M4</div>
+          <div class="body"><b>Job system</b><span>MCP tools, SSH submit, backing-off poller, artifact pull, completion handoff. The largest single milestone; do not start it before M3 is real.</span></div>
+          <div class="est">3–4 days</div>
+        </div>
+        <div class="mile">
+          <div class="id">M5</div>
+          <div class="body"><b>Git panel and Overleaf sync</b><span>Commit UI plus the compound Sync, reusing the M3 merge pane for conflicts.</span></div>
+          <div class="est">1 day</div>
+        </div>
+        <div class="mile">
+          <div class="id">M6</div>
+          <div class="body"><b>PDF preview and latexdiff review</b><span>Compile-on-save, error surfacing, marked-up comparison PDF beside the merge pane.</span></div>
+          <div class="est">1 day</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section id="risks">
+      <h2><span class="num">11</span>Risks</h2>
+      <p class="sub">Known sharp edges, with the mitigation decided in advance.</p>
+
+      <div class="risks">
+        <div class="risk">
+          <span class="sev hi">Billing</span>
+          <b>Inherited API key</b>
+          <p>An exported <code>ANTHROPIC_API_KEY</code> silently diverts usage from your subscription to metered API billing. Strip it at spawn and fail startup loudly if it is set in the parent environment.</p>
+        </div>
+        <div class="risk">
+          <span class="sev hi">Correctness</span>
+          <b>Tokenizer edge cases</b>
+          <p>A bad split shows a false diff and you accept a change you did not read. Mitigation: it ships in M2 with fixtures, and the latexdiff PDF is a second, independent view of the same change.</p>
+        </div>
+        <div class="risk">
+          <span class="sev md">Integration</span>
+          <b>Overleaf drift</b>
+          <p>Editing in the web editor between syncs guarantees eventual conflicts. Always rebase before push; never force. Accept that Overleaf is a peer, not a backup.</p>
+        </div>
+        <div class="risk">
+          <span class="sev md">Ops</span>
+          <b>Long-lived SSH</b>
+          <p>VPN drops, expiring Kerberos tickets, and MFA-gated hosts all break polling. Treat SSH failure as a job state (<code>UNREACHABLE</code>), not an exception, and surface it in the job board rather than crashing the poller.</p>
+        </div>
+        <div class="risk">
+          <span class="sev md">Scope</span>
+          <b>Building an IDE</b>
+          <p>The temptation is to add a LaTeX editor, autocomplete, bibliography management. Don't — you have an editor. Galley's only jobs are running the agent, merging its output, and moving bits to the cluster and Overleaf.</p>
+        </div>
+        <div class="risk">
+          <span class="sev md">Rate limits</span>
+          <b>Parallel sessions</b>
+          <p>Worktrees make it easy to run four agents at once and exhaust your subscription window. Cap concurrent sessions in config and show the usage from each result message in the UI.</p>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer>
+    <span>Galley — design document · revise as M0–M3 contradict it</span>
+    <span class="f-mono">2026-09-09</span>
+  </footer>
+</div>

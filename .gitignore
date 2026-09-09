@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.uv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Node
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+
+# Galley runtime state
+galley.db
+galley.db-journal
+galley.db-wal
+.worktrees/
+artifacts-cache/
+*.log
+
+# LaTeX build output
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.out
+*.synctex.gz
+*.toc
+*.lof
+*.lot
+*.pdf
+
+# Secrets and local config
+.env
+.env.*
+galley.local.toml
+
+# macOS
+.DS_Store

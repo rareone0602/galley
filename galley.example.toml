@@ -1,0 +1,25 @@
+# Copy to galley.local.toml (gitignored) and edit.
+
+[paths]
+paper_repo  = "/Users/you/papers/my-paper"
+code_mirror = "/Users/you/code/my-project"
+
+[cluster]
+# Must match a Host entry in ~/.ssh/config. Add a ControlMaster block there so
+# status polls reuse one authenticated connection.
+host    = "cluster"
+scratch = "/scratch/you/galley"
+submit  = "sbatch"
+
+[server]
+bind = "127.0.0.1"   # loopback only; the MCP surface is exposed here
+port = 7878
+
+[limits]
+# Worktrees make it easy to run several agents at once and exhaust your
+# subscription window.
+max_concurrent_sessions = 2
+
+# Do NOT put ANTHROPIC_API_KEY in the environment. Galley strips it at spawn so
+# the agent uses your Claude subscription rather than metered API billing, and
+# fails startup loudly if it finds one.
