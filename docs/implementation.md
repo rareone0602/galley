@@ -125,7 +125,44 @@ owner for that fact and makes the design's real requirement — *Galley never
 applies a partial patch* — provable rather than hoped for. The CodeMirror
 dependencies were removed rather than left unused.
 
-### 4. The compile report reads the settled log, not the console
+### 4. The marked-up review diffs changed files, not the flattened paper
+
+**Design:** `latexdiff paper/main.tex .worktrees/<slug>/main.tex`, with
+`--flatten` to reach the sections.
+
+On a real paper that does not work — not "is slow", does not work. Measured on
+FLM: `--flatten` burned **five minutes of CPU and produced zero bytes** before
+hitting a ceiling. Diffing the one changed section instead takes **0.12
+seconds**, and the whole marked-up build, compile included, takes **5.1
+seconds**. Four orders of magnitude, same output.
+
+So `latexdiff_pdf` diffs only the files that changed. To compile them in place
+it hard-links the accepted tree into scratch (near-instant, and the build still
+sees the real figures, styles and bibliography) and unlinks each file before
+writing the marked-up version, so the paper itself can never be written through
+a shared inode.
+
+Two things had to be handled that `--flatten` did for free:
+
+- **The markup preamble.** latexdiff injects its `\DIFadd`/`\DIFdel`
+  definitions into whichever file carries `\documentclass`. Section files carry
+  none, so Galley fetches the block from a throwaway diff and injects it itself.
+- **The root proxy.** A paper's root `main.tex` is often not a document at all.
+  Overleaf requires the compiled file to sit in the repository root, so FLM's
+  root file is a comment block and one `\input` of
+  `publications/paper/iclr27/main.tex`, which is where `\documentclass` really
+  is. Putting the preamble in the proxy loads packages before the class and the
+  build dies with "Command \abovecaptionskip already defined".
+  `find_documentclass()` follows `\input` to the real driver.
+
+### 5. Compiling and reviewing do not block a request
+
+Both run in a `WorkTable` and the UI polls for progress. There is deliberately
+no caching: a stale marked-up PDF would show you the wrong change, which is the
+one failure this application exists to prevent. A second request joins the run
+in progress; a later one starts fresh.
+
+### 6. The compile report reads the settled log, not the console
 
 latexmk runs LaTeX several times. The first pass has no `.aux` and reports
 *every* citation as undefined — 96 of them on the real paper, all resolved by
@@ -133,13 +170,13 @@ the last pass. Reading latexmk's console output therefore reports phantoms;
 `compile_pdf` reads the final `.log` instead, and returns nothing when the paper
 is clean, which is what it currently does for FLM.
 
-### 5. Worktrees are excluded locally, not through `.gitignore`
+### 7. Worktrees are excluded locally, not through `.gitignore`
 
 `.worktrees/` is written into `.git/info/exclude`, which is local to the clone
 and never enters a commit. Putting it in `.gitignore` would have modified a
 tracked file and pushed that change to Overleaf.
 
-### 6. Port, branch names, and paths
+### 8. Port, branch names, and paths
 
 `8124` rather than `7878`, bound to loopback; reach it with
 `ssh -L 8124:localhost:8124 wsserver1`. The paper repo is the `FLM` checkout
@@ -168,6 +205,12 @@ branch were removed afterwards; FLM's own working tree was never touched.
 That run found three bugs, all now fixed and tested: the agent could write
 outside its worktree, `POST /sessions` was a sync route so starting an agent
 raised "no running event loop", and a failed start orphaned its worktree.
+
+**The split view** uses `react-resizable-panels`, the MIT library Overleaf uses
+for its own editor/PDF split, and the palette is Overleaf's published design
+tokens (`green-50 #098842`, the neutral-10/20 greys, `neutral-90` text). Galley
+is AGPL-3.0-or-later, which makes that alignment licence-compatible, but no
+Overleaf source is vendored.
 
 **Not yet exercised live:**
 

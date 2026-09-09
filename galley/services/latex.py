@@ -97,6 +97,9 @@ def latexdiff_available() -> bool:
     return shutil.which("latexdiff") is not None
 
 
+_DOCUMENTCLASS = re.compile(r"\\documentclass\s*(?:\[[^\]]*\])?\s*\{[^}]*\}")
+_INPUT = re.compile(r"^[^%\n]*?\\(?:input|include)\s*\{([^}]+)\}", re.M)
+
 DIF_PREAMBLE_MARK = "%DIF PREAMBLE EXTENSION ADDED BY LATEXDIFF"
 _PREAMBLE_BLOCK = re.compile(
     re.escape(DIF_PREAMBLE_MARK) + r".*?%DIF END PREAMBLE EXTENSION ADDED BY LATEXDIFF",
@@ -123,6 +126,32 @@ def _dif_preamble(workdir: Path, timeout: float = 60) -> str:
         b.unlink(missing_ok=True)
     match = _PREAMBLE_BLOCK.search(proc.stdout)
     return match.group(0) if match else ""
+
+
+def find_documentclass(tree: Path, main_tex: str, depth: int = 4) -> Path | None:
+    """The file that actually carries `\\documentclass`, following `\\input`.
+
+    A paper's root file is often only a proxy — Overleaf requires the compiled
+    file to sit in the repository root, so a project whose real driver lives at
+    publications/<kind>/<name>/main.tex keeps a one-line root file that inputs
+    it. Putting latexdiff's preamble in the proxy would load packages before the
+    document class and the build dies on "Command \\abovecaptionskip already
+    defined".
+    """
+    seen: set[Path] = set()
+    queue = [(tree / main_tex, 0)]
+    while queue:
+        path, level = queue.pop(0)
+        if path in seen or level > depth or not path.is_file():
+            continue
+        seen.add(path)
+        text = path.read_text(errors="replace")
+        if _DOCUMENTCLASS.search(text):
+            return path
+        for rel in _INPUT.findall(text):
+            child = tree / (rel if rel.endswith(".tex") else rel + ".tex")
+            queue.append((child, level + 1))
+    return None
 
 
 def latexdiff_pdf(
@@ -201,16 +230,23 @@ def latexdiff_pdf(
             log_tail="",
         )
 
-    main_path = tree / main_tex
-    source = main_path.read_text(errors="replace")
+    driver = find_documentclass(tree, main_tex)
+    if driver is None:
+        return CompileResult(
+            ok=False,
+            pdf=None,
+            errors=[f"no \\documentclass found from {main_tex}; cannot place the markup preamble"],
+            undefined=[],
+            log_tail="",
+        )
+    source = driver.read_text(errors="replace")
     if DIF_PREAMBLE_MARK not in source:
         preamble = _dif_preamble(tree, timeout=60)
-        if "\\begin{document}" in source:
-            source = source.replace("\\begin{document}", preamble + "\n\\begin{document}", 1)
-        else:
-            source = preamble + "\n" + source
-        main_path.unlink(missing_ok=True)
-        main_path.write_text(source)
+        match = _DOCUMENTCLASS.search(source)
+        assert match is not None  # find_documentclass only returns files that match
+        source = source[: match.end()] + "\n" + preamble + source[match.end() :]
+        driver.unlink(missing_ok=True)
+        driver.write_text(source)
 
     result = compile_pdf(tree, main_tex, outdir, timeout=timeout)
     # The UI fetches this under a fixed name.
