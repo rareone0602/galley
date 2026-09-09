@@ -199,6 +199,24 @@ function source(index: IndexHolder) {
   }
 }
 
+/* CodeMirror's `type` is presentational — it chooses an icon — so it is the
+ * wrong thing to read for "which kind of completion was that". This table
+ * lives here, beside the builders that set it, so a `type` changed for how the
+ * list looks cannot silently relabel the usage log from another file. An
+ * unrecognised type answers undefined rather than guessing: "was completion
+ * used at all" then survives a drift even where "which kind" does not. */
+const KIND_OF_TYPE: Record<string, string> = {
+  variable: 'cite',
+  constant: 'ref',
+  keyword: 'macro',
+  type: 'environment',
+}
+
+/** Which kind of completion this option offers: cite, ref, macro, environment. */
+export function completionKind(option: Completion): string | undefined {
+  return option.type ? KIND_OF_TYPE[option.type] : undefined
+}
+
 // -- turning the index into what the list shows -------------------------------
 
 function citationOption(entry: ProjectCitation): Completion {

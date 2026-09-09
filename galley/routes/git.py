@@ -36,12 +36,22 @@ def register(app: FastAPI, d: Deps) -> None:
         try:
             sha = git.commit(d.cfg.paths.paper_repo, message, paths)
         except git.GitError as exc:
+            d.note("git.commit", {"ok": False, "paths": len(paths)})
             raise HTTPException(400, str(exc)) from exc
+        d.note("git.commit", {"ok": True, "paths": len(paths)})
         return {"ok": True, "sha": sha}
 
     @app.post("/api/git/sync")
     def git_sync(body: dict = Body(default={})) -> dict:
-        return publish.sync(d.cfg, allow_push=body.get("push", True)).as_dict()
+        result = publish.sync(d.cfg, allow_push=body.get("push", True)).as_dict()
+        # `step` is where it got to, which is the useful half of the answer:
+        # a refusal at "precondition" and a failure at "push" are different
+        # problems with the same ok=False.
+        d.note(
+            "git.sync",
+            {"ok": result["ok"], "step": result["step"], "pushed": result["pushed"]},
+        )
+        return result
 
     @app.post("/api/git/rebase/{action}")
     def git_rebase(action: str) -> dict:

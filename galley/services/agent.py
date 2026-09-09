@@ -26,7 +26,7 @@ from claude_agent_sdk import (
 from ..bus import EventBus
 from ..config import Config, child_env
 from ..db import Database
-from . import worktree
+from . import usage, worktree
 
 SYSTEM_RULES = """
 You are working inside Galley, on your own branch of a writing repository.
@@ -294,6 +294,8 @@ class AgentService:
                             session_id,
                             claude_session_id=event["payload"]["claude_session_id"],
                         )
+                    if event["kind"] == "result":
+                        self._note_turn(event["payload"])
                     await self._emit(session_id, event["kind"], event["payload"])
             self.db.update_session(session_id, status="idle")
             await self._emit(session_id, "turn_end", _commit_worktree(Path(row["worktree_path"])))
@@ -303,6 +305,26 @@ class AgentService:
         except Exception as exc:  # noqa: BLE001 - surfaced in the UI, not swallowed
             self.db.update_session(session_id, status="error", error=str(exc))
             await self._emit(session_id, "error", {"error": str(exc)})
+
+    def _note_turn(self, payload: dict) -> None:
+        """What a turn cost, in seconds and in dollars.
+
+        Kept in the usage log as well as the transcript because the transcript
+        is per session and this question is not: what you want to know later is
+        what a month of writing this way costs, and how long you spend waiting
+        for it. The turn's text is not recorded — only its size.
+        """
+        if not self.cfg.usage.enabled:
+            return
+        usage.record(
+            self.db,
+            "agent.turn",
+            {
+                "ms": payload.get("duration_ms"),
+                "turns": payload.get("num_turns"),
+                "cost_usd": payload.get("total_cost_usd"),
+            },
+        )
 
     async def _emit(self, session_id: str, kind: str, payload: Any) -> None:
         event = self.db.append_event(kind, payload, session_id=session_id)

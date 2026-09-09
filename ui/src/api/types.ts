@@ -112,7 +112,58 @@ export type Config = {
   publish: string
   max_concurrent_sessions: number
   latexdiff: boolean
+  /** Whether Galley keeps a local record of how you use it. Never leaves this
+   *  machine; `[usage] enabled` in the config is the switch. */
+  usage: boolean
   bind: string
+}
+
+/** The usage log, turned into the questions it was kept to answer. Shapes
+ *  only — this record contains no sentence of the paper. */
+export type UsageReport = {
+  days: number
+  events: number
+  kept_since: number | null
+  kept_total: number
+  counts: Record<string, number>
+  never_used: string[]
+  attention: {
+    opened: number
+    tabs: Record<string, number>
+    files_opened: number
+    distinct_files: number
+    busiest_files: [string, number][]
+    saves: number
+  }
+  loop: {
+    sessions: Record<string, number>
+    sessions_total: number
+    continued: number
+    stopped_early: number
+    reviews_opened: number
+    saves: number
+    changes_offered: number
+    changes_taken: number
+    changes_rewritten: number
+    decisions: Record<string, number>
+    undos: number
+  }
+  waiting: {
+    compiles: number
+    compile_seconds: number
+    compile_median_seconds: number | null
+    compiles_failed: number
+    agent_turns: number
+    agent_seconds: number
+    agent_cost_usd: number
+  }
+  friction: {
+    errors: number
+    where: Record<string, number>
+    refusals: Record<string, number>
+    reloaded_under_you: number
+    buffers_restored: number
+  }
 }
 
 export type LogEvent = {

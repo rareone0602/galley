@@ -11,6 +11,7 @@ import { gitApi } from './git'
 import { projectApi } from './project'
 import { sessionsApi } from './sessions'
 import { synctexApi } from './synctex'
+import { usageApi } from './usage'
 
 export * from './types'
 export * from './project'
@@ -26,4 +27,5 @@ export const api = {
   ...projectApi,
   ...buildApi,
   ...synctexApi,
+  ...usageApi,
 }

@@ -49,6 +49,22 @@ main_tex       = "main.tex"
 bind = "127.0.0.1"
 port = 8124
 
+[usage]
+# A local record of how you use the workbench, kept so it can be made better:
+# which surfaces you actually use, whether the ask-and-merge loop finishes,
+# what you decide when you review, where you wait, and which features you have
+# never once touched.
+#
+# It records what you did and never what you wrote — no sentence of the paper,
+# no prompt, no selection ever reaches it — and it never leaves this machine.
+# There is no reporting endpoint and no third party.
+#
+#   galley usage              what the last 30 days looked like
+#   galley usage --days 7     a shorter window
+#   galley usage --json       the same thing as data
+#   galley usage --forget     delete it and start again
+enabled = true
+
 [limits]
 # Worktrees make it easy to run several agents at once and exhaust your
 # subscription window.

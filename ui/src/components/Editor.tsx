@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { pickedCompletion } from '@codemirror/autocomplete'
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
 import {
   HighlightStyle,
@@ -21,8 +22,9 @@ import {
 } from '@codemirror/view'
 import { tags as t } from '@lezer/highlight'
 import { api, type FileBody, type Selection } from '../api'
-import { latexCompletion } from '../editor/completion'
+import { completionKind, latexCompletion } from '../editor/completion'
 import { languageFor } from '../editor/languages'
+import { record } from '../usage'
 import {
   CLEAN,
   type SaveStatus,
@@ -161,6 +163,16 @@ function clock(at: number): string {
   return new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
+/** Which file the editor was last showing, for the usage log. Outside the
+ *  component because leaving the Editor tab takes the component with it, and
+ *  coming back to the same file is a return rather than another opening. */
+let lastOpened: string | null = null
+
+/** Which of the four lists an accepted completion came from, read off the
+ *  option's own `type`. `../editor/completion` sets it, and once an option is
+ *  in hand it is the only thing that tells a citation from a label. A type it
+ *  does not set leaves the kind off rather than guessing — the accept itself
+ *  still counts, which is the part that answers "is this ever used". */
 export default function Editor({
   path,
   reloadKey,
@@ -227,6 +239,7 @@ export default function Editor({
     const written = v.state.doc.toString()
     try {
       const res = await api.writeFile(rel, written)
+      record('file.save', { path: rel, bytes: res.bytes })
       /* Typing carries on during the write. The file now holds `written`, so
        * that is what the buffer is measured against, and anything added since
        * is still unsaved. */
@@ -244,6 +257,7 @@ export default function Editor({
       setError(null)
       reportSaved.current(rel)
     } catch (e) {
+      record('error.shown', { where: 'editor', reason: 'save' })
       setError(String(e))
     }
   }, [])
@@ -256,6 +270,7 @@ export default function Editor({
     const rel = pathRef.current
     if (!v || !rel || !showInPdf.current) return false
     showInPdf.current(rel, v.state.doc.lineAt(v.state.selection.main.head).number)
+    record('editor.show_in_pdf')
     return true
   }, [])
 
@@ -373,6 +388,12 @@ export default function Editor({
                   reportDirty.current(rel, dirty)
                 }
               }
+              // Accepting a completion is a decision worth recording. The
+              // keystrokes that led to it are nobody's business.
+              for (const tr of update.transactions) {
+                const picked = tr.annotation(pickedCompletion)
+                if (picked) record('editor.complete', { kind: completionKind(picked) })
+              }
             }
             if (update.selectionSet || update.docChanged) refreshBubble(update.view)
           }),
@@ -399,12 +420,20 @@ export default function Editor({
     [],
   )
 
+  /** The size this editor was last drawn at. The stored preference arrives
+   *  with the component, so only a move away from it is a zoom. */
+  const lastSize = useRef(fontSize)
+
   // Applying it is separate from choosing it, so the number shown in the
   // bar, the stored preference and the editor never disagree.
   useEffect(() => {
     view.current?.dispatch({
       effects: sizing.current.reconfigure(sizeTheme(fontSize)),
     })
+    if (fontSize !== lastSize.current) {
+      lastSize.current = fontSize
+      record('editor.zoom', { size: fontSize })
+    }
     try {
       localStorage.setItem(SIZE_KEY, String(fontSize))
     } catch {
@@ -443,6 +472,12 @@ export default function Editor({
    * the file moved underneath it. */
   const reconcile = useCallback(
     (v: EditorView, rel: string, body: FileBody) => {
+      // The file is open once it is on screen with its contents, which is here
+      // — and not again each time a save or a merge re-reads the same file.
+      if (lastOpened !== rel) {
+        lastOpened = rel
+        record('file.open', { path: rel, type: body.type })
+      }
       const disk = body.content ?? ''
       const remembered = bufferFor(rel)
       if (!remembered) {
@@ -513,7 +548,10 @@ export default function Editor({
       // Exactly what you left here: text, cursor, undo history, scroll. When
       // only the reload key bumped, the view already holds this very state and
       // rebuilding it would be a flicker for nothing.
-      if (v.state !== remembered.state) showState(v, remembered.state, remembered.scroll)
+      if (v.state !== remembered.state) {
+        showState(v, remembered.state, remembered.scroll)
+        if (remembered.status.dirty) record('editor.buffer_restored', { path })
+      }
       setFile(remembered.meta)
       setStatus(remembered.status)
     } else {
@@ -529,7 +567,11 @@ export default function Editor({
       .then((body) => {
         if (!stale && view.current === v) reconcile(v, path, body)
       })
-      .catch((e) => !stale && setError(String(e)))
+      .catch((e) => {
+        if (stale) return
+        record('error.shown', { where: 'editor', reason: 'load' })
+        setError(String(e))
+      })
     return () => {
       stale = true
       // On the way out, the buffer takes over from the view.
@@ -573,6 +615,7 @@ export default function Editor({
       `${rel} changed on disk. Replace your unsaved changes with the file on disk?\n\nCtrl+Z brings yours back.`,
     )
     if (!ok) return
+    record('file.reload_from_disk', { path: rel })
     const next = { ...buffer.status, dirty: false, changedOnDisk: false }
     updateBuffer(rel, { saved: buffer.diskText, diskText: null, status: next })
     v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: buffer.diskText } })
@@ -589,6 +632,7 @@ export default function Editor({
       setAsking(false)
       setBubble(null)
     } catch (e) {
+      record('error.shown', { where: 'editor', reason: 'ask' })
       setError(String(e))
     }
   }

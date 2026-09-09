@@ -65,12 +65,27 @@ class Limits:
 
 
 @dataclass(frozen=True)
+class Usage:
+    """Whether to keep a local record of how the workbench is used.
+
+    On by default because it exists to answer questions about your own tool
+    that are otherwise guesswork, and because it never leaves this machine —
+    there is no reporting endpoint and no third party. It records what you did
+    and never what you wrote; `galley usage` prints it and
+    `galley usage --forget` deletes it.
+    """
+
+    enabled: bool = True
+
+
+@dataclass(frozen=True)
 class Config:
     paths: Paths
     paper: Paper
     server: Server
     limits: Limits
     source: Path
+    usage: Usage = Usage()
 
     @property
     def db_path(self) -> Path:
@@ -150,7 +165,10 @@ def load(path: Path | None = None) -> Config:
     limit = raw.get("limits", {})
     limits = Limits(max_concurrent_sessions=int(limit.get("max_concurrent_sessions", 2)))
 
-    cfg = Config(paths, paper, server, limits, path)
+    u = raw.get("usage", {})
+    usage = Usage(enabled=bool(u.get("enabled", True)))
+
+    cfg = Config(paths, paper, server, limits, path, usage)
     validate(cfg, raw_paper=p)
     return cfg
 

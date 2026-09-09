@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, type TreeNode } from '../api'
+import { record } from '../usage'
 import Ask, { type Question } from './tree/Ask'
 import ContextMenu, { type MenuItem } from './tree/ContextMenu'
 import TreeRow from './tree/TreeRow'
@@ -64,7 +65,10 @@ export default function FileTree({
         // loaded when that changes rather than on every reload of the tree.
         setFolds((was) => (was.project === body.root ? was : loadFolds(body.root)))
       })
-      .catch((e) => setError(String(e)))
+      .catch((e) => {
+        record('error.shown', { where: 'rail', reason: 'tree' })
+        setError(String(e))
+      })
   }, [reloadKey, nonce])
 
   useEffect(() => saveFolds(folds), [folds])
@@ -79,6 +83,15 @@ export default function FileTree({
     [shown, needle, folds.shut],
   )
   const taken = useMemo(() => paths(tree), [tree])
+
+  /* One record per query you settle on, not one per keystroke. What is worth
+   * knowing is whether the filter is reached for and whether it finds
+   * anything; a letter at a time would be a transcript of your typing. */
+  useEffect(() => {
+    if (!needle) return
+    const settled = window.setTimeout(() => record('rail.filter', { matched: found }), 800)
+    return () => window.clearTimeout(settled)
+  }, [needle, found])
 
   // Also on the row count, so a file you have just made is scrolled to once
   // the reloaded tree contains it — but not on a plain reload after a save,
@@ -116,6 +129,7 @@ export default function FileTree({
       refresh()
       return done
     } catch (e) {
+      record('error.shown', { where: 'rail', reason: 'change' })
       setError(e instanceof Error ? e.message : String(e))
       return null
     } finally {
@@ -138,6 +152,8 @@ export default function FileTree({
       }
     }
     setBusy(false)
+    record('rail.action', { action: 'upload', ok: failed.length === 0 })
+    if (failed.length) record('error.shown', { where: 'rail', reason: 'upload' })
     setError(failed.length ? failed.join(' · ') : null)
     refresh()
   }
@@ -153,6 +169,7 @@ export default function FileTree({
 
   function askRename(row: Row) {
     if (dirty.has(row.node.path)) {
+      record('error.shown', { where: 'rail', reason: 'unsaved' })
       setError(`${row.node.path} has unsaved changes — save it before moving it.`)
       return
     }
@@ -161,6 +178,7 @@ export default function FileTree({
 
   function askDelete(row: Row) {
     if (dirty.has(row.node.path)) {
+      record('error.shown', { where: 'rail', reason: 'unsaved' })
       setError(`${row.node.path} has unsaved changes — save it before deleting it.`)
       return
     }
@@ -183,6 +201,10 @@ export default function FileTree({
           ? api.createFolder(asked.parent, value)
           : api.createFile(asked.parent, value),
       )
+      // The question's own name for what it is doing, so the log and the panel
+      // that asked cannot drift apart. A replace is an upload, and says so in
+      // `send`, which is where it ends up.
+      record('rail.action', { action: asked.kind, ok: made !== null })
       if (!made) return
       setFold(asked.parent, false)
       setCursor(made.path)
@@ -192,6 +214,7 @@ export default function FileTree({
 
     if (asked.kind === 'rename') {
       const moved = await act(() => api.renameFile(asked.path, value))
+      record('rail.action', { action: asked.kind, ok: moved !== null })
       if (!moved) return
       setCursor(moved.path)
       if (onRenamed) onRenamed(moved.was, moved.path)
@@ -203,6 +226,7 @@ export default function FileTree({
       // Worked out first: once the row has gone there is nothing to be beside.
       const next = neighbour(visible, asked.path)
       const gone = await act(() => api.deleteFile(asked.path))
+      record('rail.action', { action: asked.kind, ok: gone !== null })
       if (!gone) return
       setCursor(next?.node.path ?? null)
       if (asked.path !== open) return

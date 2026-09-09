@@ -7,6 +7,7 @@ running) and GET says how it is getting on.
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 from fastapi import Body, FastAPI, HTTPException
@@ -31,6 +32,7 @@ def register(app: FastAPI, d: Deps) -> None:
         message about the wrong thing. This says the true reason immediately.
         """
         if not d.cfg.builds_a_pdf:
+            d.note("refused", {"route": "compile", "reason": "no LaTeX root"})
             raise HTTPException(400, NO_LATEX.format(main_tex=d.cfg.paper.main_tex))
 
     def _compile_job(session_id: str | None):
@@ -39,19 +41,47 @@ def register(app: FastAPI, d: Deps) -> None:
             row = d.require_session(session_id)
             repo = Path(row["worktree_path"])
             outdir = d.cfg.paths.state_dir / "build" / session_id
-        return lambda: latex.compile_pdf(repo, d.cfg.paper.main_tex, outdir).as_dict()
+        def build() -> dict:
+            started = time.monotonic()
+            result = latex.compile_pdf(repo, d.cfg.paper.main_tex, outdir).as_dict()
+            d.note(
+                "compile.run",
+                {
+                    "mode": "branch" if session_id else "accepted",
+                    "ms": round((time.monotonic() - started) * 1000),
+                    "ok": bool(result.get("ok")),
+                    "problems": len(result.get("problems") or []),
+                },
+            )
+            return result
+
+        return build
 
     def _review_job(session_id: str):
         row = d.require_session(session_id)
         worktree_path = Path(row["worktree_path"])
         changed = [f["path"] for f in d.session_changes(row)]
-        return lambda: latex.latexdiff_pdf(
-            d.cfg.paths.paper_repo,
-            worktree_path,
-            d.cfg.paper.main_tex,
-            d.cfg.paths.state_dir / "review" / session_id,
-            changed=changed,
-        ).as_dict()
+        def marked_up() -> dict:
+            started = time.monotonic()
+            result = latex.latexdiff_pdf(
+                d.cfg.paths.paper_repo,
+                worktree_path,
+                d.cfg.paper.main_tex,
+                d.cfg.paths.state_dir / "review" / session_id,
+                changed=changed,
+            ).as_dict()
+            d.note(
+                "compile.run",
+                {
+                    "mode": "review",
+                    "ms": round((time.monotonic() - started) * 1000),
+                    "ok": bool(result.get("ok")),
+                    "files": len(changed),
+                },
+            )
+            return result
+
+        return marked_up
 
     # async, not sync: a sync route runs in a worker thread, where starting the
     # background task raises "no running event loop".

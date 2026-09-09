@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, type FileDiff } from '../api'
+import { record } from '../usage'
 import ChangeMap from './merge/ChangeMap'
 import { ChangeRow, EqualRow, stateOf, type View } from './merge/ChangeRow'
 import SavePlan from './merge/SavePlan'
@@ -66,6 +67,15 @@ export default function MergePane({
     setBusy(true)
     try {
       const body = await api.diff(sessionId)
+      // A review starts when there is something in front of you to answer, so
+      // that reviews opened against reviews saved reads as the drop-off. A
+      // session Claude changed nothing on is not a review you walked away from.
+      if (body.files.length) {
+        record('review.open', {
+          files: body.files.length,
+          changes: body.files.reduce((sum, f) => sum + f.changes, 0),
+        })
+      }
       setFiles(body.files)
       setDisk(Object.fromEntries(body.files.map((f) => [f.path, yoursFor(f.ops)])))
       setDecisions({})
@@ -77,6 +87,7 @@ export default function MergePane({
       setSaved(null)
       setError(null)
     } catch (e) {
+      record('error.shown', { where: 'review', reason: 'diff' })
       setError(String(e))
     } finally {
       setBusy(false)
@@ -150,6 +161,7 @@ export default function MergePane({
     remember(
       `${answer.kind === 'claude' ? "took Claude's" : 'kept yours'} on change ${at + 1}`,
     )
+    record('review.decide', { answer: answer.kind, bulk: false })
     put(id, answer)
     if (andStepOn) goTo(at + 1)
     else setCursor(at)
@@ -169,7 +181,13 @@ export default function MergePane({
         `${short(file.path)}${rewritten ? `, leaving ${rewritten} rewritten` : ''}`,
     )
     const bulk: Answers = { ...answers }
-    for (const op of settled) bulk[op.id] = { kind }
+    // One record per change, as for a change answered on its own: what these
+    // are here to show is how much of the paper is read one sentence at a time
+    // and how much is swept, and a single event for a sweep loses exactly that.
+    for (const op of settled) {
+      bulk[op.id] = { kind }
+      record('review.decide', { answer: kind, bulk: true })
+    }
     setDecisions((prev) => ({ ...prev, [file.path]: bulk }))
   }
 
@@ -178,6 +196,7 @@ export default function MergePane({
     if (at === undefined) return
     if (answers[id]?.kind !== 'rewrite') {
       remember(`started rewriting change ${at + 1}`)
+      record('review.decide', { answer: 'rewrite', bulk: false })
       put(id, { kind: 'rewrite', text: seed })
     }
     setCursor(at)
@@ -204,6 +223,7 @@ export default function MergePane({
   function undo() {
     const last = past[past.length - 1]
     if (!last) return
+    record('review.undo')
     setDecisions(last.decisions)
     setPast(past.slice(0, -1))
     setEditing(null)
@@ -284,6 +304,12 @@ export default function MergePane({
       // characters — the same number for ASCII LaTeX, and not for a file with
       // an em dash in it.)
       const bytes = writes.reduce((sum, item) => sum + item.after, 0)
+      record('review.save', {
+        files: done.length,
+        taken: writes.reduce((sum, item) => sum + item.tally.taken, 0),
+        rewritten: writes.reduce((sum, item) => sum + item.tally.rewritten, 0),
+        bytes,
+      })
       setSaved(
         `Wrote ${done.length === 1 ? done[0] : `${done.length} files`} · ` +
           `${bytes.toLocaleString()} bytes. Nothing was committed or pushed.`,
@@ -291,6 +317,7 @@ export default function MergePane({
       setPlanning(false)
       setError(null)
     } catch (e) {
+      record('error.shown', { where: 'review', reason: 'save' })
       setError(`${String(e)}${done.length ? ` (wrote ${done.join(', ')} first)` : ''}`)
     } finally {
       setBusy(false)

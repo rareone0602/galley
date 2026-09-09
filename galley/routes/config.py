@@ -26,5 +26,8 @@ def register(app: FastAPI, d: Deps) -> None:
             "publish": f"{cfg.paper.publish_remote}/{cfg.paper.publish_branch}",
             "max_concurrent_sessions": cfg.limits.max_concurrent_sessions,
             "latexdiff": latex.latexdiff_available(),
+            # The browser asks once and then either records or does not; it
+            # never posts into a switched-off log.
+            "usage": cfg.usage.enabled,
             "bind": f"{cfg.server.bind}:{cfg.server.port}",
         }

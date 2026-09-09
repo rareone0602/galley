@@ -9,10 +9,10 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 
-from . import build, config, diff, files, git, project, sessions, synctex
+from . import build, config, diff, files, git, project, sessions, synctex, usage
 from .deps import Deps
 
-AREAS = (config, sessions, files, diff, git, build, synctex, project)
+AREAS = (config, sessions, files, diff, git, build, synctex, project, usage)
 
 __all__ = ["AREAS", "Deps", "register_all"]
 

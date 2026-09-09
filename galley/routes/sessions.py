@@ -35,6 +35,13 @@ def register(app: FastAPI, d: Deps) -> None:
             )
         except SessionLimitReached as exc:
             raise HTTPException(429, str(exc)) from exc
+        d.note(
+            "session.create",
+            # How a session begins is the question: from a passage you
+            # highlighted, or from the box with the whole paper in mind.
+            {"from": "selection" if body.get("selection") else "prompt",
+             "prompt": prompt},
+        )
         if body.get("start", True):
             try:
                 d.agents.start(row["id"])
@@ -60,6 +67,7 @@ def register(app: FastAPI, d: Deps) -> None:
         if not text:
             raise HTTPException(400, "an empty message goes nowhere")
         d.require_session(session_id)
+        d.note("session.message", {"text": text})
         try:
             d.agents.start(session_id, text)
         except RuntimeError as exc:
@@ -68,6 +76,7 @@ def register(app: FastAPI, d: Deps) -> None:
 
     @app.post("/api/sessions/{session_id}/stop")
     async def stop_session(session_id: str) -> dict:
+        d.note("session.stop", {"was_running": d.agents.is_running(session_id)})
         await d.agents.stop(session_id)
         return {"ok": True}
 
@@ -77,6 +86,7 @@ def register(app: FastAPI, d: Deps) -> None:
         await d.agents.stop(session_id)
         worktree.remove(d.cfg.paths.paper_repo, row["slug"], keep_branch=keep_branch)
         d.db.update_session(session_id, status="removed", ended_at=time.time())
+        d.note("session.remove", {"kept_branch": keep_branch})
         return {"ok": True, "branch_kept": keep_branch}
 
     @app.get("/api/sessions/{session_id}/events")

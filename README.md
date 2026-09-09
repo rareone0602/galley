@@ -188,6 +188,39 @@ pressed. The sentence beside the disabled button is the one pressing it would
 have produced — the backend owns it, and a test pins the two against each
 other.
 
+## Your own usage, logged
+
+Galley keeps a local record of how you use it, so the next round of changes can
+be aimed at what you actually do rather than what seems likely.
+
+It answers the questions you would otherwise guess at. Which of the four
+surfaces do you use? Does the select-ask-merge loop finish, or do sessions get
+started and abandoned? When you review, do you take Claude's wording, keep
+yours, or write a third thing — and how often is that a bulk sweep rather than
+a decision? Where do you wait, and how much does a month of this cost? And,
+the one that is hardest to answer any other way, **which of these features have
+you never once used.**
+
+```
+galley usage              # the last 30 days
+galley usage --days 7     # a shorter window
+galley usage --json       # the same thing as data
+galley usage --forget     # delete it and start again
+```
+
+Two properties hold it up, and both are tested rather than promised.
+
+**It records what you did, never what you wrote.** No sentence of the paper, no
+prompt, no selection, no diff text. Where a size is the interesting part — how
+much text you hand to Claude — the size is kept and the text is not. A path is
+a name, not prose, so paths are kept. The rule that separates the two is mostly
+about spaces: the longest path in this paper is 69 characters with no space in
+it, while an ordinary sentence of it is 65 characters with ten.
+
+**It never leaves this machine.** There is no network call and no reporting
+endpoint; it is a table in the same SQLite file as everything else, next to
+your own paper. `[usage] enabled = false` turns it off.
+
 ## Using it for another project
 
 A Galley is one git repository plus whatever that repository happens to have. A

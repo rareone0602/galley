@@ -1,8 +1,14 @@
-"""SQLite state: sessions and an append-only event log.
+"""SQLite state: sessions, an append-only event log, and a usage log.
 
 Every agent message is written here before it is published, so the log survives
 a backend restart and a reconnecting tab replays the whole conversation rather
 than resuming mid-sentence.
+
+`events` and `usage` are deliberately two tables and not one. `events` is the
+agent's transcript — what Claude said, kept so you can read it back. `usage` is
+what *you* did with the workbench, kept so the workbench can be made better. The
+first holds prose and the second holds none; keeping them apart is what makes
+that promise checkable rather than a claim.
 """
 
 from __future__ import annotations
@@ -41,6 +47,16 @@ CREATE TABLE IF NOT EXISTS events (
 );
 
 CREATE INDEX IF NOT EXISTS events_by_session ON events(session_id, id);
+
+CREATE TABLE IF NOT EXISTS usage (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    at          REAL NOT NULL,
+    kind        TEXT NOT NULL,
+    detail_json TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS usage_by_time ON usage(at);
+CREATE INDEX IF NOT EXISTS usage_by_kind ON usage(kind, at);
 """
 
 # Columns added after the first release. SQLite has no "ADD COLUMN IF NOT
@@ -137,6 +153,42 @@ class Database:
             "payload": payload,
             "ts": ts,
         }
+
+    # -- usage ------------------------------------------------------------
+
+    def append_usage(self, rows: list[tuple[float, str, str]]) -> int:
+        """Write a batch of already-scrubbed usage rows. Returns how many.
+
+        A batch because the browser sends them in one go: an interaction log
+        that made a request per click would itself be the slowest thing in the
+        UI, and would change the behaviour it is trying to measure.
+        """
+        if not rows:
+            return 0
+        self._conn.executemany(
+            "INSERT INTO usage (at, kind, detail_json) VALUES (?, ?, ?)", rows
+        )
+        self._conn.commit()
+        return len(rows)
+
+    def usage_since(self, since: float) -> list[dict]:
+        rows = self.query("SELECT * FROM usage WHERE at >= ? ORDER BY at", (since,))
+        for r in rows:
+            r["detail"] = json.loads(r.pop("detail_json"))
+        return rows
+
+    def usage_span(self) -> dict | None:
+        """The first and last thing recorded, and how many there are."""
+        return self.one("SELECT MIN(at) AS first, MAX(at) AS last, COUNT(*) AS n FROM usage")
+
+    def forget_usage(self, before: float | None = None) -> int:
+        """Delete usage rows, all of them or everything older than `before`."""
+        if before is None:
+            cur = self.execute("DELETE FROM usage")
+        else:
+            cur = self.execute("DELETE FROM usage WHERE at < ?", (before,))
+        self.execute("VACUUM")
+        return cur.rowcount
 
     def session_events(self, session_id: str, after: int = 0) -> list[dict]:
         rows = self.query(

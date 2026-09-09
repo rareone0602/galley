@@ -7,6 +7,7 @@ import GitPanel from './components/GitPanel'
 import LogPane from './components/LogPane'
 import MergePane from './components/MergePane'
 import PdfPane from './components/PdfPane'
+import { configure, record } from './usage'
 
 type Tab = 'editor' | 'review' | 'chat' | 'git'
 
@@ -29,7 +30,15 @@ export default function App() {
   const [detail, setDetail] = useState<Session | null>(null)
   const [tab, setTab] = useState<Tab>('editor')
   const [prompt, setPrompt] = useState('')
-  const [error, setError] = useState<string | null>(null)
+  const [error, setErrorText] = useState<string | null>(null)
+
+  /* Every error the UI puts in front of you, counted by where it came from.
+   * A wrapper rather than a call beside each `setError`, so a new one cannot
+   * quietly go unrecorded. */
+  const setError = useCallback((message: string | null, where = 'shell') => {
+    setErrorText(message)
+    if (message) record('error.shown', { where })
+  }, [])
   const [resizing, setResizing] = useState(false)
   const [pdfOpen, setPdfOpen] = useState(true)
   const [starting, setStarting] = useState(false)
@@ -63,6 +72,9 @@ export default function App() {
       .then((c) => {
         setConfig(c)
         setOpenPath((p) => p ?? c.main_tex)
+        // The server owns the switch, so nothing is recorded until it says so.
+        configure(c.usage)
+        record('app.open')
       })
       .catch((e) => setError(String(e)))
     void reload()
@@ -112,6 +124,9 @@ export default function App() {
 
   /** Double-clicking the PDF: open that file and put the cursor on the line. */
   const jumpToSource = useCallback((where: SourceLocation) => {
+    // Not recorded here: this runs for a double-click on the page *and* for a
+    // click in the compile-problem list, which is a different gesture. The PDF
+    // pane records the one that is a jump.
     setOpenPath(where.path)
     setTab('editor')
     setJumpTo({ path: where.path, line: where.line, nonce: Date.now() })
@@ -121,6 +136,7 @@ export default function App() {
    * Handed to the editor only when there is a page — with no LaTeX root the
    * button would be there and could never work. */
   const showLineInPdf = useCallback((path: string, line: number) => {
+    // Recorded by the editor, which knows whether the gesture got this far.
     setShowInPdf({ path, line, nonce: Date.now() })
   }, [])
 
@@ -134,7 +150,10 @@ export default function App() {
         setError(null)
         await reload()
       } catch (e) {
-        setError(String(e))
+        // The raw setter: this is rethrown, and the editor records the error
+        // it shows you. Counting it here as well would make one failed ask
+        // look like two.
+        setErrorText(String(e))
         throw e
       } finally {
         setStarting(false)
@@ -309,7 +328,10 @@ export default function App() {
                 <button
                   key={t}
                   className={tab === t ? 'on' : ''}
-                  onClick={() => setTab(t)}
+                  onClick={() => {
+                    setTab(t)
+                    record('tab.show', { tab: t })
+                  }}
                   disabled={!session && (t === 'review' || t === 'chat')}
                 >
                   {t === 'editor'

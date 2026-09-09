@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { api, type Problem, type SourceLocation, type Work } from '../api'
+import { record } from '../usage'
 import PdfViewer, { type Mark } from './PdfViewer'
 
 type Mode = 'accepted' | 'branch' | 'review'
@@ -58,6 +59,10 @@ export default function PdfPane({
   async function run(which: Mode) {
     setMode(which)
     stopPolling()
+    // The build itself is recorded by the server, which knows its real
+    // duration and its real outcome and does not stop knowing them when this
+    // tab closes. What is recorded here is only what the server cannot see:
+    // the request never landing, or the polling failing.
     const kick = () =>
       which === 'review' && sessionId
         ? api.review(sessionId)
@@ -89,10 +94,12 @@ export default function PdfPane({
           }
         } catch (e) {
           stopPolling()
+          record('error.shown', { where: 'pdf', reason: 'build' })
           setWork({ state: 'failed', elapsed_seconds: null, error: String(e) })
         }
       }, 2000)
     } catch (e) {
+      record('error.shown', { where: 'pdf', reason: 'build' })
       setWork({ state: 'failed', elapsed_seconds: null, error: String(e) })
     }
   }
@@ -132,7 +139,11 @@ export default function PdfPane({
             `Line ${view.asked_line} prints nothing, so this is line ${view.line}, the next one that does.`,
           )
       })
-      .catch((e) => !stale && setNote(String(e)))
+      .catch((e) => {
+        if (stale) return
+        record('error.shown', { where: 'pdf', reason: 'synctex' })
+        setNote(String(e))
+      })
     return () => {
       stale = true
     }
@@ -265,7 +276,14 @@ export default function PdfPane({
             src={api.pdfUrl(shownSession(shown, sessionId), shown.mode === 'review', shown.stamp)}
             sessionId={shownSession(shown, sessionId)}
             review={shown.mode === 'review'}
-            onJump={onJump}
+            // Recorded here rather than where the jump lands: the viewer calls
+            // this only for a double-click that found its source, which is the
+            // gesture worth counting. The problem list uses `onJump` too, and
+            // clicking an error is not the same thing at all.
+            onJump={(where) => {
+              record('editor.jump_from_pdf')
+              onJump(where)
+            }}
             mark={mark}
           />
         ) : busy ? (

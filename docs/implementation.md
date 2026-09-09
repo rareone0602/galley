@@ -535,6 +535,80 @@ runs with the **project root** as its working directory, not the root file's
 directory, which is what Overleaf does and therefore what `\input` paths in a
 real project already assume.
 
+### 24. A record of your own usage, and the line it does not cross
+
+Po Hung asked for this: *"Can you make my usage logged so that I can improve my
+UX in the future?"* Three decisions shaped what it became.
+
+**A closed vocabulary, not free-form events.** `KINDS` in
+`galley/services/usage.py` is 26 named things, each with the question it helps
+answer written beside it. Closed because the most valuable thing this log can
+say is *which of these has never once happened* — the strongest signal there is
+for taking a feature out — and that question can only be asked of a list
+somebody wrote down. A kind the server does not know is refused and named back
+to the browser, which warns in the console, so a typo shows up at the first
+click rather than as a silent gap months later.
+
+**Decisions and friction, not a session replay.** No keystrokes, no scrolling,
+no focus changes. The log records that a change was decided and which way, that
+a build took nine seconds and failed, that an error was put in front of you and
+where it came from. A log nobody reads is worse than none, and the noise from
+instrumenting a hot path would bury the signal in it.
+
+**It records what you did, never what you wrote.** This is the property the
+whole thing rests on, so it is enforced on the way in rather than left to every
+call site to remember. `FORBIDDEN` names the keys that carry manuscript prose —
+`text`, `prompt`, `selection`, `old`, `new`, `content`, `instruction`, `body` —
+and their values are replaced by a word count. Everything else is kept only if
+it reads like a label rather than a sentence.
+
+That last test is worth stating, because the obvious version of it is wrong. A
+length bound alone does not separate the two: the longest path in this paper is
+69 characters and contains no space at all, while a perfectly ordinary sentence
+of it is 65 characters and contains ten. The first draft capped strings at 200
+characters and a test caught it immediately — a 121-character sentence under a
+key nobody had thought of was stored verbatim. The rule is now mostly about
+spaces (at most four), with a length bound behind it, and the test that found
+the hole throws every forbidden key and one unforeseen one at it at once.
+
+`events` and `usage` are two tables and not one on the same reasoning. `events`
+is the agent's transcript and holds prose by design; `usage` holds none.
+Keeping them apart is what makes the promise checkable instead of a claim.
+
+**Both halves record.** The browser records what you did with the UI; the
+server records what actually happened, through `Deps.note` — a build's real
+duration, a sync's real outcome, what a turn cost. So the record stays true
+when the tab is closed or the page is reloaded mid-build, and the two cannot
+disagree about whether a compile succeeded.
+
+Reading it back is `galley usage`, which prints the report the same way any
+panel added later would: `usage.report()` produces the numbers, `usage.render()`
+owns the wording, and both the command and a future route use the one copy.
+`galley usage --forget` deletes it.
+
+**Two numbers to read with care.**
+
+`reviews_opened` minus `reviews_saved` is an *upper bound* on abandonment, not
+a count of it: the merge pane remounts and re-loads the diff whenever you come
+back to the Review tab, so wandering to the editor and back inflates it. It
+does not fire for an empty diff, which would otherwise make every session
+Claude changed nothing on look like a review abandoned.
+
+`review.decide` can exceed the number of changes in a file, because a change
+can be decided more than once — two answered by hand and then "take all"
+records fourteen decisions over twelve changes. That is what happened, and the
+bulk flag is what tells the two apart.
+
+**The first run of the log found two bugs in the log.** `compile.run` was being
+recorded twice, once by the server and once by the pane, and `editor.jump_from_pdf`
+twice, once by the pane and once by the shell — the hazard of instrumenting a
+component and its container in the same afternoon. The server owns
+`compile.run` now (it measures the build rather than the poll that noticed it,
+and it does not stop knowing when a tab closes) and the pane owns the jump (the
+shell's callback also runs for a click in the compile-problem list, which is a
+different gesture). Both showed up as a count of two against a single gesture
+the first time it was exercised.
+
 ## What has been exercised, and what has not
 
 **Run against the real paper (258 `.tex` files, 13,153 segments):** the

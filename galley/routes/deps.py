@@ -17,7 +17,7 @@ from fastapi import HTTPException
 from ..bus import EventBus
 from ..config import Config
 from ..db import Database
-from ..services import git
+from ..services import git, usage
 from ..services.agent import AgentService
 from ..services.work import WorkTable
 
@@ -61,6 +61,17 @@ class Deps:
         if session_id:
             return self.cfg.paths.state_dir / "build" / session_id / f"{stem}.pdf"
         return self.cfg.paths.state_dir / "build" / f"{stem}.pdf"
+
+    def note(self, kind: str, detail: dict | None = None) -> None:
+        """Record something the *server* is the authority on.
+
+        The browser records what you did with the UI; this records what
+        actually happened — a build's real duration, a sync's real outcome —
+        so the log stays true when the tab is closed or the page is reloaded
+        mid-build. Switched off with the rest of it.
+        """
+        if self.cfg.usage.enabled:
+            usage.record(self.db, kind, detail)
 
     def read_working(self, rel: str) -> str:
         """A file as it is on disk right now, empty if it is not there.
