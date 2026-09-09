@@ -15,6 +15,25 @@ export type DiffOp = {
 
 export type FileDiff = { path: string; ops: DiffOp[]; changes: number }
 
+/** One entry in the project rail. Folders carry children; files do not. */
+export type TreeNode = {
+  name: string
+  path: string
+  type: 'dir' | 'tex' | 'text' | 'image' | 'figure' | 'binary'
+  children?: TreeNode[]
+}
+
+/** A file as the editor gets it. `content` is null for anything not text. */
+export type FileBody = {
+  path: string
+  type: TreeNode['type']
+  content: string | null
+  bytes: number
+}
+
+/** A block you highlighted, and where in the file it came from. */
+export type Selection = { path: string; start: number; end: number; text: string }
+
 export type Session = {
   id: string
   slug: string
@@ -26,6 +45,10 @@ export type Session = {
   error: string | null
   created_at: number
   ended_at: number | null
+  sel_path: string | null
+  sel_start: number | null
+  sel_end: number | null
+  sel_text: string | null
   running?: boolean
   files?: { path: string; added: number | null; removed: number | null }[]
 }
@@ -111,8 +134,11 @@ export const api = {
 
   sessions: () => json<Session[]>('/api/sessions'),
   session: (id: string) => json<Session>(`/api/sessions/${id}`),
-  createSession: (prompt: string, start = true) =>
-    json<Session>('/api/sessions', { method: 'POST', body: JSON.stringify({ prompt, start }) }),
+  createSession: (prompt: string, selection?: Selection) =>
+    json<Session>('/api/sessions', {
+      method: 'POST',
+      body: JSON.stringify({ prompt, start: true, selection }),
+    }),
   message: (id: string, text: string) =>
     json<{ ok: boolean }>(`/api/sessions/${id}/message`, {
       method: 'POST',
@@ -121,6 +147,17 @@ export const api = {
   stopSession: (id: string) => json<{ ok: boolean }>(`/api/sessions/${id}/stop`, { method: 'POST' }),
   removeSession: (id: string, keepBranch = true) =>
     json<{ ok: boolean }>(`/api/sessions/${id}?keep_branch=${keepBranch}`, { method: 'DELETE' }),
+
+  tree: (sessionId?: string) =>
+    json<{ root: string; tree: TreeNode[] }>(
+      '/api/tree' + (sessionId ? `?session_id=${sessionId}` : ''),
+    ),
+  file: (path: string, sessionId?: string) =>
+    json<FileBody>(
+      `/api/file?path=${encodeURIComponent(path)}` + (sessionId ? `&session_id=${sessionId}` : ''),
+    ),
+  blobUrl: (path: string, sessionId?: string) =>
+    `/api/blob?path=${encodeURIComponent(path)}` + (sessionId ? `&session_id=${sessionId}` : ''),
 
   diff: (sessionId: string, path?: string) =>
     json<{ base: string; head: string; files: FileDiff[] }>(

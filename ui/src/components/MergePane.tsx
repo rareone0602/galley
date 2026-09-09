@@ -1,62 +1,94 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, applyOps, type DiffOp, type FileDiff, type WordSpan } from '../api'
 
+type View = 'split' | 'inline'
+
 /**
- * Accept or reject Claude's changes one sentence at a time.
+ * Review Claude's draft the way Diffchecker shows a comparison: your text on
+ * the left, Claude's on the right, changed passages tinted, the exact words
+ * that moved picked out inside them.
  *
- * Nothing here applies a patch. The backend hands over a list of ops covering
- * the whole file; the resulting buffer is just those ops with your choices
- * substituted in, and Save writes that entire buffer. There is no patch offset
- * to get wrong and no partial application to go stale.
+ * The merge part is the middle column. Nothing here applies a patch: the
+ * backend hands over ops covering the whole file, the result is those ops with
+ * your choices substituted in, and Save writes that entire buffer. There is no
+ * patch offset to get wrong and no half-applied hunk to go stale.
  */
-export default function MergePane({ sessionId }: { sessionId: string }) {
+export default function MergePane({
+  sessionId,
+  onSaved,
+}: {
+  sessionId: string
+  onSaved: (path: string) => void
+}) {
   const [files, setFiles] = useState<FileDiff[]>([])
+  const [active, setActive] = useState(0)
   const [accepted, setAccepted] = useState<Record<string, Set<number>>>({})
   const [saved, setSaved] = useState<Record<string, string>>({})
+  const [view, setView] = useState<View>('split')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [cursor, setCursor] = useState(0)
+  const rows = useRef<Map<number, HTMLDivElement>>(new Map())
 
-  async function reload() {
+  const reload = useCallback(async () => {
     setBusy(true)
     try {
       const body = await api.diff(sessionId)
       setFiles(body.files)
       setAccepted(Object.fromEntries(body.files.map((f) => [f.path, new Set<number>()])))
+      setActive(0)
+      setCursor(0)
       setError(null)
     } catch (e) {
       setError(String(e))
     } finally {
       setBusy(false)
     }
-  }
+  }, [sessionId])
 
   useEffect(() => {
     void reload()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId])
+  }, [reload])
 
-  function toggle(path: string, id: number) {
+  const file = files[active] ?? null
+  const changes = useMemo(
+    () => (file ? file.ops.filter((o) => o.type === 'change') : []),
+    [file],
+  )
+  const chosen = file ? accepted[file.path] ?? new Set<number>() : new Set<number>()
+
+  function toggle(id: number) {
+    if (!file) return
     setAccepted((prev) => {
-      const next = new Set(prev[path] ?? [])
+      const next = new Set(prev[file.path] ?? [])
       next.has(id) ? next.delete(id) : next.add(id)
-      return { ...prev, [path]: next }
+      return { ...prev, [file.path]: next }
     })
   }
 
-  function setAll(path: string, ops: DiffOp[], on: boolean) {
+  function setAll(on: boolean) {
+    if (!file) return
     setAccepted((prev) => ({
       ...prev,
-      [path]: on ? new Set(ops.filter((o) => o.type === 'change').map((o) => o.id)) : new Set(),
+      [file.path]: on ? new Set(changes.map((o) => o.id)) : new Set(),
     }))
   }
 
-  async function save(file: FileDiff) {
+  function jump(delta: number) {
+    if (!changes.length) return
+    const next = (cursor + delta + changes.length) % changes.length
+    setCursor(next)
+    rows.current.get(changes[next].id)?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  }
+
+  async function save() {
+    if (!file) return
     setBusy(true)
     try {
-      const content = applyOps(file.ops, accepted[file.path] ?? new Set())
-      const res = await api.writeFile(file.path, content)
-      setSaved((p) => ({ ...p, [file.path]: `wrote ${res.bytes} bytes` }))
+      const res = await api.writeFile(file.path, applyOps(file.ops, chosen))
+      setSaved((p) => ({ ...p, [file.path]: `Wrote ${res.bytes.toLocaleString()} bytes` }))
       setError(null)
+      onSaved(file.path)
     } catch (e) {
       setError(String(e))
     } finally {
@@ -64,131 +96,213 @@ export default function MergePane({ sessionId }: { sessionId: string }) {
     }
   }
 
-  const totalChanges = useMemo(() => files.reduce((n, f) => n + f.changes, 0), [files])
-
   if (error) return <div className="notice bad">{error}</div>
-  if (!files.length)
+  if (!file)
     return (
       <div className="empty">
-        {busy ? 'Reading the diff…' : 'No changes on this branch yet.'}
+        {busy ? 'Reading the diff…' : 'Claude has not changed anything on this branch yet.'}
       </div>
     )
 
   return (
-    <>
-      <div className="row" style={{ marginBottom: 12 }}>
-        <span className="muted small">
-          {totalChanges} change{totalChanges === 1 ? '' : 's'} across {files.length} file
-          {files.length === 1 ? '' : 's'}
-        </span>
+    <div className="merge">
+      <div className="merge-bar">
+        <div className="filepicker">
+          {files.map((f, i) => (
+            <button
+              key={f.path}
+              className={i === active ? 'on' : ''}
+              onClick={() => {
+                setActive(i)
+                setCursor(0)
+              }}
+              title={f.path}
+            >
+              {f.path.split('/').pop()}
+              <span className="count">{f.changes}</span>
+            </button>
+          ))}
+        </div>
         <span className="grow" />
-        <button className="tiny" onClick={reload} disabled={busy}>
-          Reload diff
+        <div className="seg">
+          <button className={view === 'split' ? 'on' : ''} onClick={() => setView('split')}>
+            Side by side
+          </button>
+          <button className={view === 'inline' ? 'on' : ''} onClick={() => setView('inline')}>
+            Inline
+          </button>
+        </div>
+        <button className="tiny" onClick={() => void reload()} disabled={busy}>
+          Reload
         </button>
       </div>
 
-      {files.map((file) => {
-        const chosen = accepted[file.path] ?? new Set<number>()
-        const changes = file.ops.filter((o) => o.type === 'change')
-        return (
-          <div className="merge-file" key={file.path}>
-            <header>
-              <span className="path">{file.path}</span>
-              <span className="muted small">
-                {chosen.size}/{changes.length} accepted
-              </span>
-              <span className="grow" />
-              <button className="tiny" onClick={() => setAll(file.path, file.ops, true)}>
-                Accept all
-              </button>
-              <button className="tiny" onClick={() => setAll(file.path, file.ops, false)}>
-                Reject all
-              </button>
-              <button className="tiny primary" onClick={() => save(file)} disabled={busy}>
-                Save to {file.path.split('/').pop()}
-              </button>
-            </header>
-            {saved[file.path] && <div className="notice good">{saved[file.path]}</div>}
-            <div>
-              {file.ops.map((op) =>
-                op.type === 'equal' ? (
-                  <Context key={op.id} text={op.new} />
-                ) : (
-                  <Change
-                    key={op.id}
-                    op={op}
-                    accepted={chosen.has(op.id)}
-                    onToggle={() => toggle(file.path, op.id)}
-                  />
-                ),
-              )}
-            </div>
+      <div className="merge-bar second">
+        <button className="tiny" onClick={() => jump(-1)} disabled={!changes.length}>
+          ↑
+        </button>
+        <button className="tiny" onClick={() => jump(1)} disabled={!changes.length}>
+          ↓
+        </button>
+        <span className="muted small">
+          {changes.length
+            ? `Change ${cursor + 1} of ${changes.length} · ${chosen.size} accepted`
+            : 'no changes in this file'}
+        </span>
+        <span className="grow" />
+        <button className="tiny" onClick={() => setAll(true)}>
+          Accept all
+        </button>
+        <button className="tiny" onClick={() => setAll(false)}>
+          Reject all
+        </button>
+        <button className="tiny primary" onClick={() => void save()} disabled={busy}>
+          Save to {file.path.split('/').pop()}
+        </button>
+      </div>
+
+      {saved[file.path] && <div className="notice good merge-saved">{saved[file.path]}</div>}
+
+      <div className={`diff ${view}`}>
+        {view === 'split' && (
+          <div className="diff-head">
+            <div className="col-head yours">Yours — {file.path}</div>
+            <div className="col-head gutter" />
+            <div className="col-head theirs">Claude's proposal</div>
           </div>
-        )
-      })}
-    </>
+        )}
+        <div className="diff-body">
+          {file.ops.map((op) =>
+            op.type === 'equal' ? (
+              <Equal key={op.id} text={op.new} view={view} />
+            ) : (
+              <Change
+                key={op.id}
+                op={op}
+                view={view}
+                accepted={chosen.has(op.id)}
+                index={changes.findIndex((c) => c.id === op.id) + 1}
+                onToggle={() => toggle(op.id)}
+                bind={(el) => {
+                  el ? rows.current.set(op.id, el) : rows.current.delete(op.id)
+                }}
+              />
+            ),
+          )}
+        </div>
+      </div>
+    </div>
   )
 }
 
-/** Unchanged text, elided in the middle when there is a lot of it. */
-function Context({ text }: { text: string }) {
+/** Text both of you agree on. Long runs fold away, like Diffchecker's context. */
+function Equal({ text, view }: { text: string; view: View }) {
   const [open, setOpen] = useState(false)
-  const lines = text.split('\n')
-  if (lines.length <= 6 || open)
-    return (
-      <div className="op equal" onClick={() => setOpen(false)}>
-        {text.replace(/\n+$/, '')}
-      </div>
+  const lines = text.replace(/\n+$/, '').split('\n')
+  const long = lines.length > 6
+
+  const body =
+    !long || open ? (
+      lines.join('\n')
+    ) : (
+      <>
+        {lines.slice(0, 2).join('\n')}
+        {'\n'}
+        <span className="fold">⋯ {lines.length - 4} unchanged lines ⋯</span>
+        {'\n'}
+        {lines.slice(-2).join('\n')}
+      </>
     )
+
+  const cell = (
+    <div className="cell equal" onClick={() => long && setOpen(!open)}>
+      {body}
+    </div>
+  )
+  if (view === 'inline') return <div className="drow equal">{cell}</div>
   return (
-    <div className="op equal" style={{ cursor: 'pointer' }} onClick={() => setOpen(true)}>
-      {lines.slice(0, 2).join('\n')}
-      {'\n'}
-      <span className="small" style={{ fontFamily: 'var(--mono)' }}>
-        ⋯ {lines.length - 4} unchanged lines ⋯
-      </span>
-      {'\n'}
-      {lines.slice(-2).join('\n')}
+    <div className="drow equal">
+      {cell}
+      <div className="gutter" />
+      <div className="cell equal" onClick={() => long && setOpen(!open)}>
+        {body}
+      </div>
     </div>
   )
 }
 
 function Change({
   op,
+  view,
   accepted,
+  index,
   onToggle,
+  bind,
 }: {
   op: DiffOp
+  view: View
   accepted: boolean
+  index: number
   onToggle: () => void
+  bind: (el: HTMLDivElement | null) => void
 }) {
-  const hasOld = op.old.trim().length > 0
-  const hasNew = op.new.trim().length > 0
+  const control = (
+    <button
+      className={`take${accepted ? ' on' : ''}`}
+      onClick={onToggle}
+      title={
+        accepted
+          ? 'Accepted — click to keep your wording instead'
+          : "Take Claude's wording for this passage"
+      }
+    >
+      {accepted ? '✓' : '→'}
+    </button>
+  )
+
+  if (view === 'inline')
+    return (
+      <div className={`drow change inline${accepted ? ' accepted' : ''}`} ref={bind}>
+        <div className="cell stacked">
+          {op.old.trim() && (
+            <div className="line old">
+              <span className="marker">−</span>
+              <Words spans={op.old_words} kind="del" fallback={op.old} />
+            </div>
+          )}
+          {op.new.trim() && (
+            <div className="line new">
+              <span className="marker">+</span>
+              <Words spans={op.new_words} kind="ins" fallback={op.new} />
+            </div>
+          )}
+          <div className="controls">
+            {control}
+            <span className="muted small">
+              {accepted ? "Claude's wording will be written" : 'your wording will be kept'}
+            </span>
+          </div>
+        </div>
+      </div>
+    )
+
   return (
-    <div className={`op change${accepted ? ' accepted' : ''}`}>
-      {hasOld && (
-        <div className="side old">
-          <span className="marker">−</span>
-          <span>
-            <Words spans={op.old_words} kind="del" fallback={op.old} />
-          </span>
-        </div>
-      )}
-      {hasNew && (
-        <div className="side new">
-          <span className="marker">+</span>
-          <span>
-            <Words spans={op.new_words} kind="ins" fallback={op.new} />
-          </span>
-        </div>
-      )}
-      <div className="controls">
-        <button className="tiny" onClick={onToggle}>
-          {accepted ? '↩ Reject' : '✓ Accept'}
-        </button>
-        <span className="muted small">
-          {accepted ? "Claude's wording will be written" : 'your wording will be kept'}
-        </span>
+    <div className={`drow change${accepted ? ' accepted' : ''}`} ref={bind}>
+      <div className="cell old">
+        <span className="idx">{index}</span>
+        {op.old.trim() ? (
+          <Words spans={op.old_words} kind="del" fallback={op.old} />
+        ) : (
+          <span className="nothing">nothing here</span>
+        )}
+      </div>
+      <div className="gutter">{control}</div>
+      <div className="cell new">
+        {op.new.trim() ? (
+          <Words spans={op.new_words} kind="ins" fallback={op.new} />
+        ) : (
+          <span className="nothing">deleted</span>
+        )}
       </div>
     </div>
   )

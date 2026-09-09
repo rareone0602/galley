@@ -122,8 +122,17 @@ against real paper sections, and again through the API.
 CodeMirror computes its own chunks from two documents, which would have made the
 UI a second authority on what changed. Deriving the pane from the ops keeps one
 owner for that fact and makes the design's real requirement — *Galley never
-applies a partial patch* — provable rather than hoped for. The CodeMirror
-dependencies were removed rather than left unused.
+applies a partial patch* — provable rather than hoped for.
+
+CodeMirror 6 *is* a dependency, as the source editor (§9). It is not asked what
+changed.
+
+The pane's shape follows Diffchecker rather than a unified patch: your text in
+the left column, Claude's in the right, changed passages tinted, and the exact
+words that moved marked inside them. The middle column is the merge control —
+one button per change, `→` to take Claude's wording, `✓` once taken. Whichever
+side loses is dimmed, so the solid column is always the file Save would write.
+An inline view is a toggle away for a narrow window.
 
 ### 4. The marked-up review diffs changed files, not the flattened paper
 
@@ -186,6 +195,57 @@ configurable rather than hard-coded to `main`/`overleaf`/`master`.
 
 ---
 
+### 9. The rail is a file tree, and the middle pane is an editor
+
+**Design:** the UI is a session list, a merge pane and a PDF.
+
+**What the code does.** Overleaf's shape, because that is the shape you know:
+the project's files on the left, the source in the middle, the PDF on the right.
+`GET /api/tree` builds the rail, `GET /api/file` opens one, `PUT /api/files/…`
+saves it. The editor is CodeMirror 6 — the same editor Overleaf uses — with the
+LaTeX mode from `@codemirror/legacy-modes` rather than Overleaf's own Lezer
+grammar, which is part of their AGPL source.
+
+What is *in* the project is git's answer, not the filesystem's:
+`git ls-files` plus untracked-but-not-ignored files. So `_build/`, `.worktrees/`
+and everything `.gitignore` covers never appear, and the rail shows exactly the
+set of files that can reach Overleaf.
+
+Sessions moved to the bottom half of the same rail, on their own draggable
+divider.
+
+### 10. A session forks from your working copy, not from your last commit
+
+**Design:** `git worktree add .worktrees/<slug> -b claude/<slug> <main>`.
+
+**What the code does.** That, and then `seed_working_copy` mirrors every
+uncommitted change — modified, untracked, and deleted — into the new checkout
+and commits it there as `Galley: your working copy at <time>`. `base_sha` is
+that commit, and the diff is taken against it.
+
+Without this the agent forks from the last commit, so a sentence you typed a
+minute ago is simply not in the file it opens — and worse, the merge pane reads
+your own unsaved paragraphs as changes Claude wants to make, where accepting one
+would silently revert your work. FLM had sixteen uncommitted files while this
+was built, so the failure was the normal case rather than the edge one.
+
+The seed commit lives only on `claude/<slug>`, which is never pushed.
+
+### 11. Selecting a passage is how you ask
+
+**Design:** a session is a prompt.
+
+**What the code does.** A session may also carry a *selection*: a path, a
+character range, and the text itself. Select a passage in the editor and a
+bubble offers to ask Claude about it, the way Overleaf's bubble offers a
+comment. `compose_prompt` then quotes the passage verbatim inside
+`<selection>…</selection>`, names the file and line span, and asks for the rest
+of the file back byte-for-byte.
+
+The passage is quoted rather than described by offsets because offsets go stale
+the moment either of you types; the agent finds the text. The selection is
+stored on the session row, so the rail can show which file a session belongs to.
+
 ## What has been exercised, and what has not
 
 **Run against the real paper (258 `.tex` files, 13,153 segments):** the
@@ -211,6 +271,26 @@ for its own editor/PDF split, and the palette is Overleaf's published design
 tokens (`green-50 #098842`, the neutral-10/20 greys, `neutral-90` text). Galley
 is AGPL-3.0-or-later, which makes that alignment licence-compatible, but no
 Overleaf source is vendored.
+
+**The file browser, the editor and the selection flow, live on FLM:** the rail
+lists 413 files from `git ls-files`; `paragraphs/headline_inequality.tex` opens
+in CodeMirror with LaTeX highlighting; dragging across a sentence raises the
+"Ask Claude" bubble.
+
+**A second real agent session, from a selection:** the passage *"At most
+\(\CE_{\mathrm{FL}}\) nats of a prover's loss can be signal; everything
+above that line is noise or misfit."* was selected and Claude asked to tighten
+it. It returned **one** change in a 3,974-byte file — `everything above that
+line` → `the rest` — and nothing else moved. Checked exactly:
+
+- reject-all is byte-identical to the file on disk (3,974 bytes both ways);
+- accept-all is byte-identical to the branch's file;
+- accepting one change of three, in the synthetic case, differs from disk by
+  exactly the three bytes that change is worth.
+
+That run found one bug, now fixed: CodeMirror never mounted when the first
+render had no file open, because the effect that attaches it ran once against a
+host element that was not in the DOM yet. The host is state, not a ref.
 
 **Not yet exercised live:**
 

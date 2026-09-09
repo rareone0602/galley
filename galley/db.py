@@ -25,7 +25,11 @@ CREATE TABLE IF NOT EXISTS sessions (
     base_sha          TEXT,
     error             TEXT,
     created_at        REAL NOT NULL,
-    ended_at          REAL
+    ended_at          REAL,
+    sel_path          TEXT,
+    sel_start         INTEGER,
+    sel_end           INTEGER,
+    sel_text          TEXT
 );
 
 CREATE TABLE IF NOT EXISTS events (
@@ -39,6 +43,18 @@ CREATE TABLE IF NOT EXISTS events (
 CREATE INDEX IF NOT EXISTS events_by_session ON events(session_id, id);
 """
 
+# Columns added after the first release. SQLite has no "ADD COLUMN IF NOT
+# EXISTS", so the additions are listed here and applied to whatever the file on
+# disk already has: an existing .galley/galley.db keeps its sessions.
+ADDED_COLUMNS = {
+    "sessions": {
+        "sel_path": "TEXT",
+        "sel_start": "INTEGER",
+        "sel_end": "INTEGER",
+        "sel_text": "TEXT",
+    }
+}
+
 
 class Database:
     def __init__(self, path: Path) -> None:
@@ -48,7 +64,15 @@ class Database:
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.executescript(SCHEMA)
+        self._migrate()
         self._conn.commit()
+
+    def _migrate(self) -> None:
+        for table, columns in ADDED_COLUMNS.items():
+            have = {r["name"] for r in self._conn.execute(f"PRAGMA table_info({table})")}
+            for name, decl in columns.items():
+                if name not in have:
+                    self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
 
     def close(self) -> None:
         self._conn.close()

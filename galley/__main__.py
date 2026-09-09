@@ -29,7 +29,7 @@ def main() -> int:
     port = args.port or cfg.server.port
     print(f"galley: paper  {cfg.paths.paper_repo}")
     print(f"galley: code   {cfg.paths.code_mirror}")
-    print(f"galley: serving on http://{host}:{port}  (tool surface at /mcp)")
+    print(f"galley: serving on http://{host}:{port}")
 
     from .app import create_app
 

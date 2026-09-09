@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 import shutil
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -58,8 +59,16 @@ def ensure_ignored(repo: Path) -> None:
     exclude.write_text(current + suffix + f"{EXCLUDE_MARKER}\n.worktrees/\n")
 
 
-def create(repo: Path, slug: str, base: str) -> Worktree:
-    """Add `.worktrees/<slug>` on a new branch `claude/<slug>` off `base`."""
+def create(repo: Path, slug: str, base: str, seed: bool = True) -> Worktree:
+    """Add `.worktrees/<slug>` on a new branch `claude/<slug>` off `base`.
+
+    `seed` copies your *uncommitted* work into the new checkout and commits it
+    first. Without it the agent forks from the last commit, so a sentence you
+    typed a minute ago simply is not in the file it opens — and worse, the merge
+    pane would then read your own unsaved paragraph as a change Claude wants to
+    make. `base_sha` is the fork point either way, which is what the diff is
+    taken against.
+    """
     ensure_ignored(repo)
     slug = unique_slug(repo, slugify(slug))
     branch = BRANCH_PREFIX + slug
@@ -71,7 +80,47 @@ def create(repo: Path, slug: str, base: str) -> Worktree:
     # A commit by the agent must be legible as one in `git log`.
     git.run(path, "config", "user.name", "Claude (galley)")
     git.run(path, "config", "user.email", "galley@localhost")
-    return Worktree(slug=slug, branch=branch, path=path, base_sha=git.head_sha(repo, base))
+
+    base_sha = git.head_sha(repo, base)
+    if seed:
+        base_sha = seed_working_copy(repo, path) or base_sha
+    return Worktree(slug=slug, branch=branch, path=path, base_sha=base_sha)
+
+
+def seed_working_copy(repo: Path, tree: Path) -> str | None:
+    """Mirror the main worktree's uncommitted state into `tree` and commit it.
+
+    Returns the sha of the seed commit, or None if there was nothing to carry
+    over. Untracked files come too: a new section you have not committed yet is
+    part of the paper as far as you are concerned.
+    """
+    carried = 0
+    for entry in git.status(repo):
+        rel = entry.path
+        if rel.split("/")[0] in (".worktrees", ".galley"):
+            continue
+        source, target = repo / rel, tree / rel
+        if source.is_file():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source, target)
+            carried += 1
+        elif target.exists():
+            target.unlink()
+            carried += 1
+
+    if not carried or git.is_clean(tree):
+        return None
+    git.run(tree, "add", "-A")
+    stamp = time.strftime("%Y-%m-%d %H:%M")
+    git.run(
+        tree,
+        "commit",
+        "-m",
+        f"Galley: your working copy at {stamp}\n\n"
+        f"{carried} uncommitted file(s) carried in so the agent sees the paper "
+        "as you do. This commit is the diff base; it is never pushed.",
+    )
+    return git.head_sha(tree)
 
 
 def listing(repo: Path) -> list[dict]:

@@ -23,8 +23,8 @@ from .config import Config, load
 from .db import Database
 from .segment.diff import diff_text
 from .segment.tokenizer import segment
-from .services import git, latex, overleaf, worktree
-from .services.agent import AgentService, SessionLimitReached
+from .services import files, git, latex, overleaf, worktree
+from .services.agent import AgentService, Selection, SessionLimitReached
 from .services.work import WorkTable
 
 UI_DIST = Path(__file__).resolve().parent.parent / "ui" / "dist"
@@ -69,6 +69,16 @@ def create_app(cfg: Config | None = None) -> FastAPI:
 
     # -- sessions ---------------------------------------------------------
 
+    def _session_changes(row: dict) -> list[dict]:
+        """What a session changed, measured from where it forked.
+
+        The fork point rather than the branch name: a session carries your
+        uncommitted work in as its first commit, so diffing against the main
+        branch would report your own unsaved paragraphs as the agent's work.
+        """
+        base = row["base_sha"] or cfg.paper.main_branch
+        return git.changed_files(cfg.paths.paper_repo, base, row["branch"])
+
     @app.get("/api/sessions")
     def list_sessions() -> list[dict]:
         rows = db.list_sessions()
@@ -84,7 +94,9 @@ def create_app(cfg: Config | None = None) -> FastAPI:
         if not prompt:
             raise HTTPException(400, "a session needs a prompt")
         try:
-            row = agents.create(prompt, body.get("slug"))
+            row = agents.create(
+                prompt, body.get("slug"), Selection.from_request(body.get("selection"))
+            )
         except SessionLimitReached as exc:
             raise HTTPException(429, str(exc)) from exc
         if body.get("start", True):
@@ -105,9 +117,7 @@ def create_app(cfg: Config | None = None) -> FastAPI:
         if row is None:
             raise HTTPException(404, f"no session {session_id}")
         row["running"] = agents.is_running(session_id)
-        row["files"] = git.changed_files(
-            cfg.paths.paper_repo, cfg.paper.main_branch, row["branch"]
-        )
+        row["files"] = _session_changes(row)
         return row
 
     @app.post("/api/sessions/{session_id}/message")
@@ -178,13 +188,13 @@ def create_app(cfg: Config | None = None) -> FastAPI:
         if row is None:
             raise HTTPException(404, f"no session {session_id}")
         repo = cfg.paths.paper_repo
-        base, head = cfg.paper.main_branch, row["branch"]
-        files = [f["path"] for f in git.changed_files(repo, base, head)]
-        if path is not None and path not in files:
+        base, head = row["base_sha"] or cfg.paper.main_branch, row["branch"]
+        changed = [f["path"] for f in _session_changes(row)]
+        if path is not None and path not in changed:
             raise HTTPException(404, f"{path} did not change on {head}")
 
         out = []
-        for rel in path and [path] or files:
+        for rel in path and [path] or changed:
             old = _read_working(repo, rel)
             new = git.show(repo, head, rel)
             ops = diff_text(old, new)
@@ -196,6 +206,43 @@ def create_app(cfg: Config | None = None) -> FastAPI:
                 }
             )
         return {"session_id": session_id, "base": base, "head": head, "files": out}
+
+    def _repo_for(session_id: str | None) -> Path:
+        """The main worktree, or a session's checkout when one is named."""
+        if not session_id:
+            return cfg.paths.paper_repo
+        row = db.get_session(session_id)
+        if row is None:
+            raise HTTPException(404, f"no session {session_id}")
+        return Path(row["worktree_path"])
+
+    @app.get("/api/tree")
+    def read_tree(session_id: str | None = None) -> dict:
+        """Everything git considers part of the project, nested into folders."""
+        repo = _repo_for(session_id)
+        return {"root": str(repo), "tree": files.tree(repo)}
+
+    @app.get("/api/file")
+    def read_file(path: str = Query(...), session_id: str | None = None) -> dict:
+        repo = _repo_for(session_id)
+        try:
+            return files.read(repo, path)
+        except FileNotFoundError as exc:
+            raise HTTPException(404, f"no such file: {path}") from exc
+        except ValueError as exc:
+            raise HTTPException(400, "path escapes the project") from exc
+
+    @app.get("/api/blob")
+    def read_blob(path: str = Query(...), session_id: str | None = None):
+        """A figure, served as itself, so the editor can show it."""
+        repo = _repo_for(session_id)
+        try:
+            target = files.resolve(repo, path)
+        except ValueError as exc:
+            raise HTTPException(400, "path escapes the project") from exc
+        if not target.is_file():
+            raise HTTPException(404, f"no such file: {path}")
+        return FileResponse(target)
 
     @app.get("/api/segments")
     def read_segments(path: str = Query(...)) -> dict:
@@ -213,10 +260,8 @@ def create_app(cfg: Config | None = None) -> FastAPI:
         content = body.get("content")
         if not isinstance(content, str):
             raise HTTPException(400, "content must be the whole resulting file")
-        repo = cfg.paths.paper_repo
-        target = (repo / path).resolve()
         try:
-            target.relative_to(repo.resolve())
+            target = files.resolve(cfg.paths.paper_repo, path)
         except ValueError as exc:
             raise HTTPException(400, "path escapes the paper repository") from exc
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -289,10 +334,7 @@ def create_app(cfg: Config | None = None) -> FastAPI:
         if row is None:
             raise HTTPException(404, f"no session {session_id}")
         worktree_path = Path(row["worktree_path"])
-        changed = [
-            f["path"]
-            for f in git.changed_files(cfg.paths.paper_repo, cfg.paper.main_branch, row["branch"])
-        ]
+        changed = [f["path"] for f in _session_changes(row)]
         return lambda: latex.latexdiff_pdf(
             cfg.paths.paper_repo,
             worktree_path,

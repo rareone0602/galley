@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -51,6 +52,55 @@ experiments actually did before you describe them.
 
 class SessionLimitReached(RuntimeError):
     pass
+
+
+@dataclass(frozen=True)
+class Selection:
+    """A block of text you highlighted in the editor, and where it came from."""
+
+    path: str
+    start: int
+    end: int
+    text: str
+
+    @classmethod
+    def from_request(cls, raw: Any) -> "Selection | None":
+        if not isinstance(raw, dict):
+            return None
+        path, text = raw.get("path"), raw.get("text")
+        if not path or not isinstance(text, str) or not text.strip():
+            return None
+        start = int(raw.get("start", 0))
+        return cls(path=str(path), start=start, end=int(raw.get("end", start + len(text))), text=text)
+
+    def line_span(self, whole_file: str) -> tuple[int, int]:
+        first = whole_file.count("\n", 0, self.start) + 1
+        return first, first + self.text.count("\n")
+
+
+def compose_prompt(instruction: str, selection: Selection | None, whole_file: str = "") -> str:
+    """What the agent is actually asked, when you asked it about a selection.
+
+    The passage is quoted verbatim rather than described by offsets, because
+    offsets go stale the moment either of you types. The agent finds the text.
+    """
+    if selection is None:
+        return instruction
+    first, last = selection.line_span(whole_file) if whole_file else (0, 0)
+    where = f"`{selection.path}`"
+    if first:
+        where += f", line {first}" if first == last else f", lines {first}\u2013{last}"
+
+    return (
+        f"I have selected this passage in {where}:\n\n"
+        f"<selection>\n{selection.text}\n</selection>\n\n"
+        f"{instruction.strip()}\n\n"
+        "Change only that passage, and only the adjacent sentences that stop "
+        "reading correctly if you do not. Everything else in the file must come "
+        "out byte-for-byte identical \u2014 I review your work sentence by "
+        "sentence, and an unrelated reflow buries the change I asked for in "
+        "noise. Edit the file in place; do not write a copy or a patch file."
+    )
 
 
 # Default deny. Writing to the paper on your own branch, and reading anything,
@@ -119,7 +169,12 @@ class AgentService:
 
     # -- lifecycle --------------------------------------------------------
 
-    def create(self, prompt: str, slug: str | None = None) -> dict:
+    def create(
+        self,
+        prompt: str,
+        slug: str | None = None,
+        selection: Selection | None = None,
+    ) -> dict:
         """Make the worktree and the session row. Does not start the agent."""
         running = self.db.active_session_count()
         cap = self.cfg.limits.max_concurrent_sessions
@@ -142,6 +197,10 @@ class AgentService:
             prompt=prompt,
             status="created",
             base_sha=tree.base_sha,
+            sel_path=selection.path if selection else None,
+            sel_start=selection.start if selection else None,
+            sel_end=selection.end if selection else None,
+            sel_text=selection.text if selection else None,
         )
         return self.db.get_session(session_id) or {}
 
@@ -151,9 +210,24 @@ class AgentService:
             raise KeyError(session_id)
         if session_id in self._tasks and not self._tasks[session_id].done():
             raise RuntimeError(f"session {session_id} is already running")
+        text = prompt or row["prompt"]
+        # Only the opening turn needs the selection spelled out; after that the
+        # agent is already in the conversation and a follow-up is just a reply.
+        if prompt is None and row.get("sel_path") and not row.get("claude_session_id"):
+            selection = Selection(
+                path=row["sel_path"],
+                start=row["sel_start"] or 0,
+                end=row["sel_end"] or 0,
+                text=row["sel_text"] or "",
+            )
+            whole = ""
+            source = Path(row["worktree_path"]) / selection.path
+            if source.is_file():
+                whole = source.read_text(errors="replace")
+            text = compose_prompt(text, selection, whole)
         self.db.update_session(session_id, status="running", error=None)
         self._tasks[session_id] = asyncio.create_task(
-            self._run(session_id, prompt or row["prompt"]),
+            self._run(session_id, text),
             name=f"galley-agent-{session_id}",
         )
 

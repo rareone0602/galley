@@ -351,3 +351,38 @@ async def test_asking_twice_joins_the_run_already_going(client, monkeypatch) -> 
 
 def test_a_review_needs_a_session(client) -> None:
     assert client.post("/api/review", json={}).status_code == 400
+
+
+# -- a session starts from the paper as you see it, not as you last committed --
+
+
+def test_a_session_carries_your_uncommitted_work_in(client, paper_repo: Path) -> None:
+    source = paper_repo / "main.tex"
+    source.write_text(source.read_text().replace("three benchmarks", "seven benchmarks"))
+    (paper_repo / "unsaved.tex").write_text("\\section{Draft}\n")
+
+    row = client.post("/api/sessions", json={"prompt": "carry it", "start": False}).json()
+    tree = Path(row["worktree_path"])
+    assert "seven benchmarks" in (tree / "main.tex").read_text()
+    assert (tree / "unsaved.tex").is_file()
+
+
+def test_your_own_edits_are_not_reported_as_the_agents(client, paper_repo: Path) -> None:
+    source = paper_repo / "main.tex"
+    source.write_text(source.read_text().replace("three benchmarks", "seven benchmarks"))
+
+    row = client.post("/api/sessions", json={"prompt": "quiet", "start": False}).json()
+    assert client.get(f"/api/sessions/{row['id']}").json()["files"] == []
+
+    body = client.get("/api/diff", params={"session_id": row["id"]}).json()
+    assert body["files"] == [], "the agent changed nothing, so there is nothing to merge"
+
+
+def test_a_deleted_file_is_carried_in_as_a_deletion(client, paper_repo: Path, git_helper) -> None:
+    (paper_repo / "old.tex").write_text("\\section{Old}\n")
+    git_helper(paper_repo, "add", "-A")
+    git_helper(paper_repo, "commit", "-qm", "add old")
+    (paper_repo / "old.tex").unlink()
+
+    row = client.post("/api/sessions", json={"prompt": "gone", "start": False}).json()
+    assert not (Path(row["worktree_path"]) / "old.tex").exists()
