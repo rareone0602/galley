@@ -244,3 +244,19 @@ async def test_a_failed_start_leaves_no_worktree_behind(client, paper_repo, monk
     assert "could not start the agent" in resp.json()["detail"]
     assert not (paper_repo / ".worktrees" / "doomed-session").exists()
     assert client.get("/api/git/status").json()["worktrees"] == []
+
+
+async def test_a_session_whose_worktree_vanished_stops_being_listed(client, config) -> None:
+    """A crash between creating the worktree and starting the agent used to
+    leave a row pointing at nothing, which the rail still offered you."""
+    import shutil
+
+    from galley.app import create_app
+    from fastapi.testclient import TestClient
+
+    row = client.post("/api/sessions", json={"prompt": "will vanish", "start": False}).json()
+    shutil.rmtree(row["worktree_path"])
+
+    with TestClient(create_app(config)) as fresh:
+        listed = [s["id"] for s in fresh.get("/api/sessions").json() if s["status"] != "removed"]
+        assert row["id"] not in listed

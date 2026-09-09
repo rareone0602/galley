@@ -38,6 +38,7 @@ def create_app(cfg: Config | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         worktree.ensure_ignored(cfg.paths.paper_repo)
+        _retire_vanished_sessions(db)
         try:
             yield
         finally:
@@ -319,6 +320,20 @@ def create_app(cfg: Config | None = None) -> FastAPI:
             )
 
     return app
+
+
+def _retire_vanished_sessions(db: Database) -> None:
+    """A session whose checkout is gone cannot be used; stop listing it.
+
+    Worktrees outlive the process, but not always: one removed by hand, or by a
+    crash between creating it and starting the agent, leaves a row pointing at
+    nothing. Clicking it would only produce an error.
+    """
+    for row in db.list_sessions():
+        if row["status"] != "removed" and not Path(row["worktree_path"]).is_dir():
+            db.update_session(
+                row["id"], status="removed", error="worktree no longer exists"
+            )
 
 
 def _read_working(repo: Path, rel: str) -> str:

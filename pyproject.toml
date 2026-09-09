@@ -3,6 +3,8 @@ name = "galley"
 version = "0.1.0"
 description = "A local workbench for writing papers with Claude, with cluster experiments and manual sentence-level merging"
 readme = "README.md"
+license = "AGPL-3.0-or-later"
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.115",

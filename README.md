@@ -109,6 +109,14 @@ local, so Overleaf only ever sees prose you already accepted.
 > `ANTHROPIC_API_KEY` silently inherits and bills per-token instead. Galley
 > strips it at spawn and fails startup loudly if it is set.
 
+## Licence
+
+AGPL-3.0-or-later. See [`LICENSE`](LICENSE).
+
+The split view uses [`react-resizable-panels`](https://github.com/bvaughn/react-resizable-panels)
+(MIT) — the same library Overleaf uses for its own editor/PDF split. No Overleaf
+source is vendored here.
+
 ## Non-goals
 
 Galley is not an editor. No LaTeX autocomplete, no bibliography management, no

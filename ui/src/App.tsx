@@ -1,12 +1,21 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { type ImperativePanelHandle, Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels'
 import { api, type Config, type Session } from './api'
 import GitPanel from './components/GitPanel'
 import LogPane from './components/LogPane'
 import MergePane from './components/MergePane'
 import PdfPane from './components/PdfPane'
 
-type Tab = 'log' | 'merge' | 'git' | 'pdf'
+type Tab = 'log' | 'merge' | 'git'
 
+/**
+ * Split view, the way Overleaf does it: source on the left, PDF on the right,
+ * both always visible, a draggable divider between them.
+ *
+ * The resizing mechanics come from `react-resizable-panels` — the same MIT
+ * library Overleaf itself uses, rather than their AGPL source. `autoSaveId`
+ * is what remembers your divider positions between visits.
+ */
 export default function App() {
   const [config, setConfig] = useState<Config | null>(null)
   const [sessions, setSessions] = useState<Session[]>([])
@@ -14,6 +23,9 @@ export default function App() {
   const [tab, setTab] = useState<Tab>('log')
   const [prompt, setPrompt] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [resizing, setResizing] = useState(false)
+  const [pdfOpen, setPdfOpen] = useState(true)
+  const pdfPanel = useRef<ImperativePanelHandle>(null)
 
   const reload = useCallback(async () => {
     try {
@@ -46,113 +58,157 @@ export default function App() {
     }
   }
 
+  function togglePdf() {
+    const panel = pdfPanel.current
+    if (!panel) return
+    panel.isCollapsed() ? panel.expand() : panel.collapse()
+  }
+
   return (
-    <div className="app">
-      <aside className="rail">
-        <header>
-          <h1>Galley</h1>
-          <div className="sub">
-            {config ? config.paper_repo.split('/').slice(-1)[0] : '…'} ·{' '}
-            {config?.main_branch ?? '…'} · {config?.bind ?? ''}
-          </div>
-        </header>
-
-        <div style={{ padding: 12, borderBottom: '1px solid var(--line)' }}>
-          <textarea
-            rows={3}
-            placeholder="What should Claude work on? It gets its own worktree."
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) void start()
-            }}
-          />
-          <button
-            className="primary"
-            style={{ width: '100%', marginTop: 6 }}
-            onClick={start}
-            disabled={!prompt.trim()}
-          >
-            New session
-          </button>
-        </div>
-
-        <div className="scroll">
-          {live.length === 0 && <div className="empty small">No sessions yet.</div>}
-          {live.map((s) => (
-            <div
-              key={s.id}
-              className={`session${s.id === current ? ' on' : ''}`}
-              onClick={() => setCurrent(s.id)}
-            >
-              <div className="title">{s.prompt.slice(0, 70)}</div>
-              <div className="meta">
-                <span className={`dot ${s.running ? 'running' : s.status === 'error' ? 'error' : 'idle'}`} />
-                <span className="mono">{s.branch.replace('claude/', '')}</span>
-              </div>
+    <PanelGroup
+      autoSaveId="galley-outer"
+      direction="horizontal"
+      className={`app${resizing ? ' resizing' : ''}`}
+    >
+      {/* -- sessions rail -------------------------------------------- */}
+      <Panel id="rail" order={1} defaultSize={19} minSize={12} maxSize={34}>
+        <aside className="rail">
+          <header>
+            <h1>Galley</h1>
+            <div className="sub">
+              {config ? config.paper_repo.split('/').slice(-1)[0] : '…'} ·{' '}
+              {config?.main_branch ?? '…'} · {config?.bind ?? ''}
             </div>
-          ))}
-        </div>
+          </header>
 
-        {session && (
-          <div style={{ padding: 10, borderTop: '1px solid var(--line)' }} className="row">
-            <button
-              className="tiny"
-              onClick={() => api.stopSession(session.id).then(reload)}
-              disabled={!session.running}
-            >
-              Stop
-            </button>
-            <button
-              className="tiny"
-              title="Remove the worktree; the branch is kept as provenance"
-              onClick={() => api.removeSession(session.id).then(() => { setCurrent(null); return reload() })}
-            >
-              Close worktree
+          <div className="new-session">
+            <textarea
+              rows={3}
+              placeholder="What should Claude work on? It gets its own worktree."
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) void start()
+              }}
+            />
+            <button className="primary" onClick={start} disabled={!prompt.trim()}>
+              New session
             </button>
           </div>
-        )}
-      </aside>
 
-      <main className="main">
-        <nav className="tabs">
-          {(['log', 'merge', 'pdf'] as Tab[]).map((t) => (
-            <button
-              key={t}
-              className={tab === t ? 'on' : ''}
-              onClick={() => setTab(t)}
-              disabled={!session && t !== 'pdf'}
-            >
-              {t === 'log' ? 'Session log' : t === 'merge' ? 'Merge' : 'PDF'}
-            </button>
-          ))}
-          <button className={tab === 'git' ? 'on' : ''} onClick={() => setTab('git')}>
-            Git &amp; Overleaf
-          </button>
-          <span className="spacer" />
-          {session && (
-            <span className="muted small" style={{ alignSelf: 'center' }}>
-              {session.branch}
-            </span>
-          )}
-        </nav>
-
-        <div className="pane">
-          {error && <div className="notice bad">{error}</div>}
-          {tab === 'log' &&
-            (session ? <LogPane session={session} /> : <div className="empty">Pick a session.</div>)}
-          {tab === 'merge' &&
-            (session ? (
-              <MergePane sessionId={session.id} />
-            ) : (
-              <div className="empty">Pick a session to review its changes.</div>
+          <div className="scroll">
+            {live.length === 0 && <div className="empty small">No sessions yet.</div>}
+            {live.map((s) => (
+              <div
+                key={s.id}
+                className={`session${s.id === current ? ' on' : ''}`}
+                onClick={() => setCurrent(s.id)}
+              >
+                <div className="title">{s.prompt.slice(0, 70)}</div>
+                <div className="meta">
+                  <span
+                    className={`dot ${s.running ? 'running' : s.status === 'error' ? 'error' : 'idle'}`}
+                  />
+                  <span className="mono">{s.branch.replace('claude/', '')}</span>
+                </div>
+              </div>
             ))}
-          {tab === 'git' && <GitPanel />}
-          {tab === 'pdf' && (
-            <PdfPane sessionId={session?.id ?? null} latexdiffAvailable={config?.latexdiff ?? false} />
+          </div>
+
+          {session && (
+            <div className="rail-foot row">
+              <button
+                className="tiny"
+                onClick={() => api.stopSession(session.id).then(reload)}
+                disabled={!session.running}
+              >
+                Stop
+              </button>
+              <button
+                className="tiny"
+                title="Remove the worktree; the branch is kept as provenance"
+                onClick={() =>
+                  api.removeSession(session.id).then(() => {
+                    setCurrent(null)
+                    return reload()
+                  })
+                }
+              >
+                Close worktree
+              </button>
+            </div>
           )}
-        </div>
-      </main>
-    </div>
+        </aside>
+      </Panel>
+
+      <PanelResizeHandle
+        className="handle"
+        onDragging={setResizing}
+        aria-label="Resize the session list"
+      />
+
+      {/* -- left: the work ------------------------------------------- */}
+      <Panel id="work" order={2} minSize={25}>
+        <section className="pane-column">
+          <nav className="tabs">
+            {(['log', 'merge', 'git'] as Tab[]).map((t) => (
+              <button
+                key={t}
+                className={tab === t ? 'on' : ''}
+                onClick={() => setTab(t)}
+                disabled={!session && t !== 'git'}
+              >
+                {t === 'log' ? 'Session log' : t === 'merge' ? 'Merge' : 'Git & Overleaf'}
+              </button>
+            ))}
+            <span className="spacer" />
+            {session && <span className="muted small branch">{session.branch}</span>}
+            {!pdfOpen && (
+              <button className="tiny" onClick={togglePdf} title="Show the PDF">
+                Show PDF ›
+              </button>
+            )}
+          </nav>
+
+          <div className="pane">
+            {error && <div className="notice bad">{error}</div>}
+            {tab === 'log' &&
+              (session ? <LogPane session={session} /> : <div className="empty">Pick a session.</div>)}
+            {tab === 'merge' &&
+              (session ? (
+                <MergePane sessionId={session.id} />
+              ) : (
+                <div className="empty">Pick a session to review its changes.</div>
+              ))}
+            {tab === 'git' && <GitPanel />}
+          </div>
+        </section>
+      </Panel>
+
+      <PanelResizeHandle
+        className="handle"
+        onDragging={setResizing}
+        aria-label="Resize the PDF preview"
+      />
+
+      {/* -- right: the PDF, always there ----------------------------- */}
+      <Panel
+        id="pdf"
+        order={3}
+        ref={pdfPanel}
+        defaultSize={42}
+        minSize={20}
+        collapsible
+        collapsedSize={0}
+        onCollapse={() => setPdfOpen(false)}
+        onExpand={() => setPdfOpen(true)}
+      >
+        <PdfPane
+          sessionId={session?.id ?? null}
+          latexdiffAvailable={config?.latexdiff ?? false}
+          onCollapse={togglePdf}
+        />
+      </Panel>
+    </PanelGroup>
   )
 }
