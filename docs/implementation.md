@@ -73,7 +73,36 @@ On the real paper this is the difference between 1,652 and 5,404 reviewable
 sentences across 258 `.tex` files. `\item` also starts a new unit, so a list is
 reviewed a point at a time.
 
-### 2. The merge pane is built from the backend's ops, not `unifiedMergeView`
+### 2. The codebase is mounted read-only, and the agent has no shell
+
+**Design:** "scoped to that worktree with the code mirror mounted read-write",
+so Claude "reads and edits it with real Grep/Glob/Edit tools".
+
+That was written for a *mirror* — a clone kept beside the paper. Here the
+directory mounted is `~/projects/ruqola/qlambda` itself: the live working tree,
+with a campaign running out of it. `add_dirs` grants access, not read-only
+access.
+
+**What the code does.** `writes_only_inside()` in `services/agent.py` is a
+`can_use_tool` callback with a default-deny shape:
+
+- **read** anything — `Read`, `Grep`, `Glob`, `NotebookRead`;
+- **write** only inside the session's own worktree — `Edit`, `Write`,
+  `NotebookEdit`, `MultiEdit`, with the path resolved and checked;
+- **everything else refused**, `Bash` included.
+
+Bash had to go with the rest, because allowing a shell undoes every other line
+of the guard: `echo x > ../../code/train.py` is a write by another name. The one
+shell command an agent would legitimately have wanted is `git commit`, so Galley
+makes that commit itself when a turn ends. It is bookkeeping, not authorship —
+the branch is still the record, and the merge pane still reads the committed
+state.
+
+So what the agent may not do is enforced by construction rather than by asking
+it nicely in the system prompt. The prompt says the same three things anyway,
+because a refusal it understands is better than one it merely hits.
+
+### 3. The merge pane is built from the backend's ops, not `unifiedMergeView`
 
 **Design:** "@codemirror/merge's `unifiedMergeView` gives per-chunk
 accept/reject controls out of the box."
@@ -96,7 +125,7 @@ owner for that fact and makes the design's real requirement — *Galley never
 applies a partial patch* — provable rather than hoped for. The CodeMirror
 dependencies were removed rather than left unused.
 
-### 3. The compile report reads the settled log, not the console
+### 4. The compile report reads the settled log, not the console
 
 latexmk runs LaTeX several times. The first pass has no `.aux` and reports
 *every* citation as undefined — 96 of them on the real paper, all resolved by
@@ -104,13 +133,13 @@ the last pass. Reading latexmk's console output therefore reports phantoms;
 `compile_pdf` reads the final `.log` instead, and returns nothing when the paper
 is clean, which is what it currently does for FLM.
 
-### 4. Worktrees are excluded locally, not through `.gitignore`
+### 5. Worktrees are excluded locally, not through `.gitignore`
 
 `.worktrees/` is written into `.git/info/exclude`, which is local to the clone
 and never enters a commit. Putting it in `.gitignore` would have modified a
 tracked file and pushed that change to Overleaf.
 
-### 5. Port, branch names, and paths
+### 6. Port, branch names, and paths
 
 `8124` rather than `7878`, bound to loopback; reach it with
 `ssh -L 8124:localhost:8124 wsserver1`. The paper repo is the `FLM` checkout
@@ -128,6 +157,17 @@ section produces exactly one reviewable change with word-level marks;
 reject-all reproduces the file on disk; write-back lands the accepted buffer and
 the file restores cleanly; `latexmk` builds `main.pdf` with no errors and no
 undefined references.
+
+**One real agent session, end to end:** a session read
+`publications/paper/iclr27/sections/experiments.tex`, rewrote one sentence about
+the Pile arXiv figures, and Galley committed it to `claude/<slug>`. The merge
+pane showed exactly one reviewable change with word-level marks, and
+reject-everything reproduced the file on disk byte for byte. The worktree and
+branch were removed afterwards; FLM's own working tree was never touched.
+
+That run found three bugs, all now fixed and tested: the agent could write
+outside its worktree, `POST /sessions` was a sync route so starting an agent
+raised "no running event loop", and a failed start orphaned its worktree.
 
 **Not yet exercised live:**
 
