@@ -23,7 +23,7 @@ from .config import Config, load
 from .db import Database
 from .segment.diff import diff_text
 from .segment.tokenizer import segment
-from .services import files, git, latex, overleaf, worktree
+from .services import files, git, latex, overleaf, synctex, worktree
 from .services.agent import AgentService, Selection, SessionLimitReached
 from .services.work import WorkTable
 
@@ -366,18 +366,55 @@ def create_app(cfg: Config | None = None) -> FastAPI:
     def review_status(session_id: str) -> dict:
         return work.state(f"review:{session_id}")
 
-    @app.get("/api/pdf")
-    def read_pdf(session_id: str | None = None, review: bool = False):
+    def _pdf_path(session_id: str | None, review: bool) -> Path:
         stem = Path(cfg.paper.main_tex).stem
         if review and session_id:
-            path = cfg.paths.state_dir / "review" / session_id / "latexdiff.pdf"
-        elif session_id:
-            path = cfg.paths.state_dir / "build" / session_id / f"{stem}.pdf"
-        else:
-            path = cfg.paths.state_dir / "build" / f"{stem}.pdf"
+            return cfg.paths.state_dir / "review" / session_id / "latexdiff.pdf"
+        if session_id:
+            return cfg.paths.state_dir / "build" / session_id / f"{stem}.pdf"
+        return cfg.paths.state_dir / "build" / f"{stem}.pdf"
+
+    @app.get("/api/pdf")
+    def read_pdf(session_id: str | None = None, review: bool = False):
+        path = _pdf_path(session_id, review)
         if not path.is_file():
             raise HTTPException(404, "no PDF yet; compile first")
         return FileResponse(path, media_type="application/pdf")
+
+    @app.get("/api/synctex/edit")
+    def synctex_edit(
+        page: int = Query(..., ge=1),
+        x: float = Query(...),
+        y: float = Query(...),
+        session_id: str | None = None,
+        review: bool = False,
+    ) -> dict:
+        """Which source line produced what is at (x, y) on this page?
+
+        `x` and `y` are big points from the top-left of the page, which is what
+        a PDF viewer measures in. This is what a double-click on the paper
+        asks, so the editor can put the cursor where you pointed.
+        """
+        pdf = _pdf_path(session_id, review)
+        # The marked-up review compiles a scratch copy of the tree; its
+        # recorded paths are resolved back to the files they came from.
+        build_dir = (
+            cfg.paths.state_dir / "review" / session_id / "tree"
+            if review and session_id
+            else pdf.parent
+        )
+        source = synctex.find(pdf)
+        if source is None:
+            raise HTTPException(
+                404,
+                "no synctex data for this PDF. Compile it again — Galley now "
+                "asks latexmk for it, but a build from before that will not "
+                "have one.",
+            )
+        location = synctex.SyncTeX.read(source).edit(page, x, y)
+        if location is None:
+            raise HTTPException(404, f"nothing recorded at ({x}, {y}) on page {page}")
+        return synctex.resolve(location, cfg.paths.paper_repo, build_dir)
 
     if UI_DIST.is_dir():
         app.mount("/", StaticFiles(directory=UI_DIST, html=True), name="ui")

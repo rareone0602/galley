@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { api, type Work } from '../api'
+import { api, type SourceLocation, type Work } from '../api'
+import PdfViewer from './PdfViewer'
 
 type Mode = 'accepted' | 'branch' | 'review'
 
@@ -14,10 +15,12 @@ export default function PdfPane({
   sessionId,
   latexdiffAvailable,
   onCollapse,
+  onJump,
 }: {
   sessionId: string | null
   latexdiffAvailable: boolean
   onCollapse: () => void
+  onJump: (where: SourceLocation) => void
 }) {
   const [work, setWork] = useState<Work | null>(null)
   const [mode, setMode] = useState<Mode>('accepted')
@@ -145,7 +148,12 @@ export default function PdfPane({
         ) : null}
 
         {work?.state === 'done' && work.ok ? (
-          <iframe className="pdf" src={src} title="paper" />
+          <PdfViewer
+            src={src}
+            sessionId={mode === 'accepted' ? null : sessionId}
+            review={mode === 'review'}
+            onJump={onJump}
+          />
         ) : (
           !work && (
             <div className="empty">

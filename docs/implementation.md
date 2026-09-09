@@ -246,6 +246,84 @@ The passage is quoted rather than described by offsets because offsets go stale
 the moment either of you types; the agent finds the text. The selection is
 stored on the session row, so the rail can show which file a session belongs to.
 
+### 12. The PDF is drawn by PDF.js, so double-clicking it can mean something
+
+**Design:** the PDF is shown beside the merge pane.
+
+**What the code does.** It is rendered by PDF.js — the renderer Overleaf uses —
+rather than handed to the browser's built-in viewer in an `<iframe>`. The reason
+is one gesture: **double-click a word and the editor goes to the line that wrote
+it.** A native viewer cannot tell the page where you clicked; a canvas can.
+
+The click becomes a point on the page in big points, which
+`GET /api/synctex/edit` turns back into a file and a line.
+
+**pdfjs-dist is pinned to 4.10.38, not 6.x.** Version 6 calls `URL.parse`, which
+needs Chrome 126 or newer; the 4.x line runs in older browsers, and it is the
+line Overleaf ships. Version 6 failed with `URL.parse is not a function` in the
+browser these screenshots were taken in, which is exactly the failure a user on
+a slightly older browser would have hit.
+
+### 13. SyncTeX is read in-process, not shelled out to
+
+**Design:** silent on this.
+
+**What the code does.** `-synctex=1` makes TeX write a `.synctex.gz` beside the
+PDF: for every box it ships, which input file and line produced it and where it
+landed. TeX Live has a `synctex` command that answers reverse-search queries
+against that file — but it is a *separate package*, and it is not installed on
+this machine, where the paper nonetheless compiles fine.
+
+So `galley/services/synctex.py` reads the file directly. It is a small
+documented format, and the alternative was to make a feature depend on a
+package the user would have to install to get it.
+
+The search matches what the real tool does in the way that matters. The smallest
+recorded box containing the point is the line of type you clicked; then the
+record *inside* it nearest your click horizontally is the word. Both steps are
+needed: TeX labels a line box with the line where the **paragraph** ended, which
+is usually a blank line, while the words inside carry the line they were written
+on. Skipping the second step sends you to the blank line after the paragraph.
+
+Coordinates: the file stores scaled points, 65536 to a TeX point of 1/72.27 in;
+a PDF viewer works in big points of 1/72 in. The conversion is pinned by a fact
+in every file — TeX puts the page body exactly one inch in, so that box's `x`
+must come back as 72.0. `tests/test_synctex.py` asserts it, then checks five
+clicks on a real compiled page against the lines that wrote them.
+
+### 14. The merge has three answers, not two
+
+**Design:** accept or reject each change.
+
+**What the code does.** Keep yours, take Claude's, or **write a third thing**.
+Double-click either side of a change, or use the pencil in the middle column,
+and the row becomes a text box seeded from whichever side you were reading;
+"Start from yours" and "Start from Claude's" reseed it. What you type wins over
+both.
+
+This is the design's own premise made usable — *"I may rewrite myself"* — and it
+costs one term in one expression:
+
+```
+edited[op.id] if op.id in edited else (op.new if accepted else op.old)
+```
+
+`galley.segment.diff.apply_ops` and the client's `applyOps` are the same rule
+written twice, once for the tests and once for the pane. Both were checked
+against the same six cases.
+
+### 15. Ctrl with + and − sizes the editor's text
+
+**Design:** silent on this.
+
+**What the code does.** A CodeMirror keymap on `Mod-=`, `Mod--` and `Mod-0`
+which calls `preventDefault`, so the browser does not zoom the whole page
+instead. Page zoom would move the file tree and the PDF too, which is not what
+you want when the source is too small to read. The size is between 8px and 32px,
+shown in the editor bar, and remembered in `localStorage`.
+
+The binding is scoped to the editor. Outside it, Ctrl +/- is still the browser's.
+
 ## What has been exercised, and what has not
 
 **Run against the real paper (258 `.tex` files, 13,153 segments):** the
@@ -291,6 +369,24 @@ line` → `the rest` — and nothing else moved. Checked exactly:
 That run found one bug, now fixed: CodeMirror never mounted when the first
 render had no file open, because the effect that attaches it ran once against a
 host element that was not in the DOM yet. The host is state, not a ref.
+
+**Reverse search, on the real paper.** `main.pdf` builds in 4.9s with a 354 KB
+`main.synctex.gz`. Five clicks across four pages resolved into four different
+files — `sections/abstract.tex`, `sections/intro.tex`, `sections/related.tex`,
+`sections/method.tex` and `figures/identity_idiagram/body.tex` — all inside the
+project. Then in the browser: a double-click at 45% across and 42% down page 1
+opened `sections/intro.tex` and flashed line 11, which reads *"The undisputed
+\textit{de facto} language and proof environment is Lean 4, which is the main
+formal language we use in this paper."* — the sentence printed at that point.
+
+**Ctrl +/- , with real key events.** 14px → 11px on three presses of Ctrl and
+`-`, → 17px on six of Ctrl and `=`, → 14px on Ctrl-0, and the number is in
+`localStorage` afterwards. The browser's own zoom never fired.
+
+**The editable merge.** The shipped client function was bundled and run against
+six cases — reject all, accept all, one accepted, one rewritten, a rewrite over
+an accepted change, and a mixture — and agrees with the Python twin on every
+one.
 
 **Not yet exercised live:**
 

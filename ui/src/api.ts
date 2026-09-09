@@ -34,6 +34,9 @@ export type FileBody = {
 /** A block you highlighted, and where in the file it came from. */
 export type Selection = { path: string; start: number; end: number; text: string }
 
+/** Where a point on the printed page came from. `line` is 1-based. */
+export type SourceLocation = { path: string; line: number; in_project: boolean }
+
 export type Session = {
   id: string
   slug: string
@@ -169,6 +172,15 @@ export const api = {
       body: JSON.stringify({ content }),
     }),
 
+  /** Reverse search: a point on the paper, in big points from the page's
+   *  top-left corner, back to the file and line that produced it. */
+  synctexEdit: (page: number, x: number, y: number, sessionId?: string, review = false) =>
+    json<SourceLocation>(
+      `/api/synctex/edit?page=${page}&x=${x.toFixed(2)}&y=${y.toFixed(2)}` +
+        (sessionId ? `&session_id=${sessionId}` : '') +
+        (review ? '&review=true' : ''),
+    ),
+
   gitStatus: () => json<GitStatus>('/api/git/status'),
   commit: (message: string, paths: string[]) =>
     json<{ ok: boolean; sha: string }>('/api/git/commit', {
@@ -196,7 +208,20 @@ export const api = {
   reviewStatus: (sessionId: string) => json<Work>(`/api/review?session_id=${sessionId}`),
 }
 
-/** Apply a set of accepted change ids to the ops, giving the whole file. */
-export function applyOps(ops: DiffOp[], accepted: Set<number>): string {
-  return ops.map((op) => (op.type === 'equal' || accepted.has(op.id) ? op.new : op.old)).join('')
+/** The whole file, as your choices make it.
+ *
+ * Three ways a change can end up: your wording (the default), Claude's
+ * (accepted), or something you typed yourself, which beats both.
+ */
+export function applyOps(
+  ops: DiffOp[],
+  accepted: Set<number>,
+  edits: Record<number, string> = {},
+): string {
+  return ops
+    .map((op) => {
+      if (op.id in edits) return edits[op.id]
+      return op.type === 'equal' || accepted.has(op.id) ? op.new : op.old
+    })
+    .join('')
 }

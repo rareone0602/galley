@@ -67,7 +67,8 @@ project's files on the left, the source in the middle, the PDF on the right,
 dividers you can drag.
 
 The editor is CodeMirror 6 — the same editor Overleaf uses — with LaTeX
-highlighting, and `Cmd/Ctrl-S` writes the file. What appears in the file tree is
+highlighting. `Cmd/Ctrl-S` writes the file, and `Ctrl` with `+`, `-` or `0`
+sizes the text (the editor's, not the whole page's). What appears in the file tree is
 git's answer (`git ls-files` plus untracked-but-not-ignored), so build output and
 session worktrees never show up, and the rail is exactly the set of files that
 can reach Overleaf.
@@ -114,8 +115,25 @@ that moved marked inside them. The middle column is the merge control — one
 button per change, `→` to take Claude's wording, `✓` once taken. Whichever side
 loses is dimmed, so the solid column is always the file **Save** would write.
 
+**There are three answers per change, not two.** Double-click either side, or
+press the pencil, and the row becomes a text box seeded from the side you were
+reading; what you type wins over both. Claude's draft is a suggestion, and the
+sentence that lands is the one you decided on.
+
 A second review surface catches meaning rather than wording: `latexdiff` between
 the accepted and proposed states, compiled and shown beside the merge pane.
+
+## The PDF
+
+Rendered by PDF.js, the renderer Overleaf uses, rather than handed to the
+browser's viewer — because that buys one gesture: **double-click a word and the
+editor goes to the line that wrote it.**
+
+That works by reading the `.synctex.gz` TeX writes beside the PDF. TeX Live's
+`synctex` command does the same job, but it is a separate package and is not
+installed everywhere a paper compiles, so Galley parses the file itself. If a
+double-click says there is no SyncTeX data, the PDF was built before this
+existed — compile it again.
 
 ## Overleaf
 
@@ -128,7 +146,7 @@ local, so Overleaf only ever sees prose you already accepted.
 ## Stack
 
 - **Backend** — FastAPI, Python 3.11+ via `uv`
-- **Frontend** — Vite, React, TypeScript, CodeMirror 6
+- **Frontend** — Vite, React, TypeScript, CodeMirror 6, PDF.js
 - **Agent** — `claude-agent-sdk`, subscription auth
 - **State** — SQLite (`sessions`, `events`)
 - **Git** — plain `subprocess` around real `git`, not GitPython or pygit2
@@ -145,8 +163,9 @@ AGPL-3.0-or-later. See [`LICENSE`](LICENSE).
 The split view uses [`react-resizable-panels`](https://github.com/bvaughn/react-resizable-panels)
 (MIT) — the same library Overleaf uses for its own editor/PDF split — and the
 editor is CodeMirror 6 (MIT) with the LaTeX mode from `@codemirror/legacy-modes`
-rather than Overleaf's own Lezer grammar. The palette is Overleaf's published
-design tokens. No Overleaf source is vendored here.
+rather than Overleaf's own Lezer grammar. The PDF is drawn by PDF.js
+(Apache-2.0), pinned to the 4.x line because 6.x needs Chrome 126. The palette
+is Overleaf's published design tokens. No Overleaf source is vendored here.
 
 ## Non-goals
 

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { type ImperativePanelHandle, Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels'
-import { api, type Config, type Selection, type Session } from './api'
+import { api, type Config, type Selection, type Session, type SourceLocation } from './api'
 import Editor from './components/Editor'
 import FileTree from './components/FileTree'
 import GitPanel from './components/GitPanel'
@@ -38,6 +38,9 @@ export default function App() {
   const [dirty, setDirty] = useState<Set<string>>(new Set())
   const [treeKey, setTreeKey] = useState(0)
   const [fileKey, setFileKey] = useState(0)
+  const [jumpTo, setJumpTo] = useState<{ path: string; line: number; nonce: number } | null>(
+    null,
+  )
 
   const pdfPanel = useRef<ImperativePanelHandle>(null)
 
@@ -100,6 +103,13 @@ export default function App() {
   const refreshFiles = useCallback(() => {
     setTreeKey((k) => k + 1)
     setFileKey((k) => k + 1)
+  }, [])
+
+  /** Double-clicking the PDF: open that file and put the cursor on the line. */
+  const jumpToSource = useCallback((where: SourceLocation) => {
+    setOpenPath(where.path)
+    setTab('editor')
+    setJumpTo({ path: where.path, line: where.line, nonce: Date.now() })
   }, [])
 
   const askAboutSelection = useCallback(
@@ -304,6 +314,7 @@ export default function App() {
                   onSaved={() => setTreeKey((k) => k + 1)}
                   onAsk={askAboutSelection}
                   busy={starting}
+                  jumpTo={jumpTo}
                 />
               )}
               {tab === 'review' &&
@@ -341,6 +352,7 @@ export default function App() {
             sessionId={session?.id ?? null}
             latexdiffAvailable={config?.latexdiff ?? false}
             onCollapse={togglePdf}
+            onJump={jumpToSource}
           />
         </Panel>
       </PanelGroup>

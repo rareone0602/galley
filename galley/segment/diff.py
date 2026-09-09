@@ -156,8 +156,24 @@ def _push(spans: list[WordSpan], op: WordOp, text: str) -> None:
     spans.append(WordSpan(op, text))
 
 
-def apply_ops(ops: list[DiffOp], accepted: set[int]) -> str:
-    """The buffer that results from accepting exactly `accepted`."""
+def apply_ops(
+    ops: list[DiffOp],
+    accepted: set[int],
+    edited: dict[int, str] | None = None,
+) -> str:
+    """The buffer that results from these choices.
+
+    Three answers per change, not two: your wording (the default), Claude's
+    (`accepted`), or a sentence you wrote yourself (`edited`), which beats
+    both — the draft is a suggestion, and what lands is what you decided.
+
+    This is the client's rule, written once here so the invariant the tests
+    assert is the same arithmetic the merge pane does.
+    """
+    edited = edited or {}
     return "".join(
-        op.new if (op.type == "equal" or op.id in accepted) else op.old for op in ops
+        edited[op.id]
+        if op.id in edited
+        else (op.new if (op.type == "equal" or op.id in accepted) else op.old)
+        for op in ops
     )

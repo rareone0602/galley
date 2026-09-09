@@ -46,6 +46,9 @@ def compile_pdf(repo: Path, main_tex: str, outdir: Path, timeout: float = 600) -
         [
             "latexmk",
             "-pdf",
+            # Writes <stem>.synctex.gz beside the PDF: the map from a point on
+            # the page back to the source line that produced it.
+            "-synctex=1",
             "-interaction=nonstopmode",
             "-halt-on-error",
             "-file-line-error",

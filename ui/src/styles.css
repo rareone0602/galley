@@ -574,7 +574,7 @@ th {
 }
 
 .diff { flex: 1; overflow: auto; min-height: 0; }
-.diff-head, .drow { display: grid; grid-template-columns: 1fr 40px 1fr; }
+.diff-head, .drow { display: grid; grid-template-columns: 1fr 34px 1fr; }
 .diff.inline .drow { display: block; }
 .diff-head {
   position: sticky;
@@ -637,9 +637,10 @@ th {
   border-left: 1px solid var(--border-divider);
   border-right: 1px solid var(--border-divider);
   display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding-top: 4px;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 4px 0;
 }
 .drow.equal .gutter { background: var(--bg-primary); }
 button.take {
@@ -665,3 +666,85 @@ button.take:hover:not(.on) { border-color: var(--bg-accent); color: var(--green-
 
 mark.del { background: rgba(184, 58, 51, 0.18); color: var(--content-danger); border-radius: 2px; padding: 0 1px; }
 mark.ins { background: rgba(9, 136, 66, 0.18); color: var(--green-60); border-radius: 2px; padding: 0 1px; }
+
+/* -- a change you rewrote yourself ------------------------------------- */
+
+button.take.pen { font-size: 11px; }
+button.take.pen.on { background: var(--content-warning); border-color: var(--content-warning); }
+button.take:disabled { opacity: 0.4; }
+
+.drow.change .cell .tag {
+  display: block;
+  font-size: 10px;
+  font-family: var(--font);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  opacity: 0.75;
+  margin-bottom: 2px;
+}
+.drow.change .cell.rewritten { background: var(--yellow-10); color: var(--content-warning); }
+/* Once you have written your own, the proposal is only there for reference. */
+.drow.change .cell.muted-side { background: var(--bg-secondary); color: var(--content-secondary); opacity: 0.7; }
+.drow.change.rewritten { border-left: 3px solid var(--content-warning); }
+
+.drow.change.editing { display: block; border-left: 3px solid var(--content-warning); }
+.editing-cell {
+  padding: 8px 12px;
+  background: var(--bg-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.editing-cell textarea {
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  line-height: 1.65;
+  background: var(--bg-primary);
+  min-height: 60px;
+}
+
+/* -- the PDF, drawn by PDF.js ------------------------------------------ */
+
+.pdf-zoom {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  padding: 0 2px 6px;
+}
+.pdf-zoom .muted { white-space: nowrap; }
+.pdf-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 10px;
+}
+.pdf-page {
+  position: relative;
+  background: var(--white);
+  box-shadow: 0 1px 4px rgba(27, 34, 44, 0.22);
+  flex: none;
+}
+.pdf-page canvas { display: block; }
+.pdf-page-number {
+  position: absolute;
+  right: 4px;
+  bottom: 2px;
+  font-size: 10px;
+  color: var(--content-disabled);
+  background: rgba(255, 255, 255, 0.8);
+  padding: 0 3px;
+  border-radius: 2px;
+  pointer-events: none;
+}
+
+/* Arriving from the PDF: show where you landed, then get out of the way. */
+.cm-jump-flash { animation: jump-flash 1.6s ease-out; }
+@keyframes jump-flash {
+  0%, 45% { background-color: rgba(9, 136, 66, 0.28); }
+  100% { background-color: transparent; }
+}

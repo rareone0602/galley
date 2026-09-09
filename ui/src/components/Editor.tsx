@@ -9,8 +9,10 @@ import {
 } from '@codemirror/language'
 import { stex } from '@codemirror/legacy-modes/mode/stex'
 import { highlightSelectionMatches, search, searchKeymap } from '@codemirror/search'
-import { Compartment, EditorState } from '@codemirror/state'
+import { Compartment, EditorState, StateEffect, StateField } from '@codemirror/state'
 import {
+  Decoration,
+  type DecorationSet,
   EditorView,
   drawSelection,
   highlightActiveLine,
@@ -37,8 +39,26 @@ const latexHighlight = HighlightStyle.define([
   { tag: t.className, color: 'var(--yellow-50)' },
 ])
 
+/** The one thing Ctrl +/- changes. Overleaf calls it the editor font size. */
+const SIZE_KEY = 'galley:editor-font-size'
+const MIN_SIZE = 8
+const MAX_SIZE = 32
+const DEFAULT_SIZE = 14
+
+function storedSize(): number {
+  try {
+    const raw = Number(localStorage.getItem(SIZE_KEY))
+    return raw >= MIN_SIZE && raw <= MAX_SIZE ? raw : DEFAULT_SIZE
+  } catch {
+    return DEFAULT_SIZE
+  }
+}
+
+const sizeTheme = (px: number) =>
+  EditorView.theme({ '&': { fontSize: `${px}px` }, '.cm-gutters': { fontSize: `${px}px` } })
+
 const galleyTheme = EditorView.theme({
-  '&': { height: '100%', fontSize: 'var(--fs)', backgroundColor: 'var(--bg-primary)' },
+  '&': { height: '100%', backgroundColor: 'var(--bg-primary)' },
   '.cm-scroller': { fontFamily: 'var(--mono)', lineHeight: '1.6' },
   '.cm-content': { padding: '10px 0', caretColor: 'var(--content-primary)' },
   '.cm-gutters': {
@@ -56,6 +76,26 @@ const galleyTheme = EditorView.theme({
   '&.cm-focused': { outline: 'none' },
 })
 
+/* Arriving from a double-click on the PDF, the line is flashed rather than
+ * selected: a selection here would raise the "Ask Claude" bubble over the
+ * text you came to read, and you have not asked for anything yet. */
+const flashLine = StateEffect.define<number>()
+const clearFlash = StateEffect.define<null>()
+const flash = Decoration.line({ class: 'cm-jump-flash' })
+
+const flashField = StateField.define<DecorationSet>({
+  create: () => Decoration.none,
+  update(marks, tr) {
+    marks = marks.map(tr.changes)
+    for (const effect of tr.effects) {
+      if (effect.is(flashLine)) marks = Decoration.set([flash.range(effect.value)])
+      if (effect.is(clearFlash)) marks = Decoration.none
+    }
+    return marks
+  },
+  provide: (field) => EditorView.decorations.from(field),
+})
+
 /** Where the "Ask Claude" bubble should sit, in editor-relative pixels. */
 type Bubble = { top: number; left: number; selection: Selection }
 
@@ -66,6 +106,7 @@ export default function Editor({
   onSaved,
   onAsk,
   busy,
+  jumpTo,
 }: {
   path: string | null
   reloadKey: number
@@ -73,12 +114,15 @@ export default function Editor({
   onSaved: (path: string) => void
   onAsk: (selection: Selection, instruction: string) => Promise<void>
   busy: boolean
+  /** A line to put the cursor on, from double-clicking the PDF. */
+  jumpTo?: { path: string; line: number; nonce: number } | null
 }) {
   const [host, setHost] = useState<HTMLDivElement | null>(null)
   const view = useRef<EditorView | null>(null)
   const saved = useRef<string>('')
   const pathRef = useRef<string | null>(null)
   const editable = useRef(new Compartment())
+  const sizing = useRef(new Compartment())
 
   const [file, setFile] = useState<FileBody | null>(null)
   const [dirty, setDirty] = useState(false)
@@ -87,6 +131,7 @@ export default function Editor({
   const [bubble, setBubble] = useState<Bubble | null>(null)
   const [asking, setAsking] = useState(false)
   const [instruction, setInstruction] = useState('')
+  const [fontSize, setFontSize] = useState(storedSize)
 
   pathRef.current = path
 
@@ -107,6 +152,28 @@ export default function Editor({
       setError(String(e))
     }
   }, [onDirtyChange, onSaved])
+
+  /** Step the font size, or reset it when `direction` is 0. */
+  const bumpSize = useCallback((direction: number) => {
+    setFontSize((current) => {
+      const next = direction === 0 ? DEFAULT_SIZE : current + direction
+      return Math.min(MAX_SIZE, Math.max(MIN_SIZE, next))
+    })
+    return true
+  }, [])
+
+  // Applying it is separate from choosing it, so the number shown in the
+  // bar, the stored preference and the editor never disagree.
+  useEffect(() => {
+    view.current?.dispatch({
+      effects: sizing.current.reconfigure(sizeTheme(fontSize)),
+    })
+    try {
+      localStorage.setItem(SIZE_KEY, String(fontSize))
+    } catch {
+      /* a private window; the size just will not be remembered */
+    }
+  }, [fontSize])
 
   // -- build the editor once the host element exists --------------------
   useEffect(() => {
@@ -131,6 +198,13 @@ export default function Editor({
           galleyTheme,
           EditorView.lineWrapping,
           keymap.of([
+            // Ctrl/Cmd +, - and 0, the way every editor does it. The
+            // browser would otherwise zoom the whole page, which moves the
+            // PDF and the file tree too; preventDefault keeps it here.
+            { key: 'Mod-=', preventDefault: true, run: () => bumpSize(+1) },
+            { key: 'Mod-Shift-=', preventDefault: true, run: () => bumpSize(+1) },
+            { key: 'Mod--', preventDefault: true, run: () => bumpSize(-1) },
+            { key: 'Mod-0', preventDefault: true, run: () => bumpSize(0) },
             {
               key: 'Mod-s',
               preventDefault: true,
@@ -145,6 +219,8 @@ export default function Editor({
             indentWithTab,
           ]),
           editable.current.of(EditorView.editable.of(true)),
+          sizing.current.of(sizeTheme(storedSize())),
+          flashField,
           EditorView.updateListener.of((update) => {
             if (update.docChanged) {
               const now = update.state.doc.toString()
@@ -221,6 +297,29 @@ export default function Editor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path, reloadKey, host])
 
+  // The file is opened by the parent; this puts the cursor on the line and
+  // holds it in the middle of the view, the way a jump should land.
+  useEffect(() => {
+    const v = view.current
+    if (!v || !jumpTo || jumpTo.path !== path || !file) return
+    const total = v.state.doc.lines
+    const line = v.state.doc.line(Math.min(Math.max(jumpTo.line, 1), total))
+    v.dispatch({
+      selection: { anchor: line.from },
+      effects: [
+        EditorView.scrollIntoView(line.from, { y: 'center' }),
+        flashLine.of(line.from),
+      ],
+    })
+    v.focus()
+    const fade = window.setTimeout(
+      () => view.current?.dispatch({ effects: clearFlash.of(null) }),
+      1600,
+    )
+    return () => window.clearTimeout(fade)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jumpTo?.nonce, path, file])
+
   async function ask() {
     if (!bubble || !instruction.trim()) return
     try {
@@ -243,6 +342,15 @@ export default function Editor({
         {status && <span className="muted small">{status}</span>}
         <span className="grow" />
         <span className="muted small hint">select a passage to ask Claude</span>
+        <div className="seg" title="Editor font size — Ctrl/Cmd with +, − or 0">
+          <button onClick={() => bumpSize(-1)} disabled={fontSize <= MIN_SIZE}>
+            −
+          </button>
+          <button onClick={() => bumpSize(0)}>{fontSize}px</button>
+          <button onClick={() => bumpSize(1)} disabled={fontSize >= MAX_SIZE}>
+            +
+          </button>
+        </div>
         <button className="tiny primary" onClick={() => void save()} disabled={!dirty || binary}>
           Save
         </button>

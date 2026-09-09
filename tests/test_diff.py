@@ -96,3 +96,44 @@ def test_rewrapping_a_paragraph_is_not_a_change() -> None:
     new = "A sentence that is wrapped across two lines here.\n"
     ops = diff_text(old, new)
     assert all(o.type == "equal" for o in ops)
+
+
+# -- your own wording beats both sides ---------------------------------------
+
+
+def test_a_sentence_you_rewrote_is_what_gets_written() -> None:
+    """The merge pane lets you type a third version; that is what lands."""
+    old = "We evaluate on three benchmarks.\nThe model improves by a large margin.\n"
+    new = "We evaluate on three benchmarks.\nThe model improves by 4.2 BLEU.\n"
+    ops = diff_text(old, new)
+    change = next(o for o in ops if o.type == "change")
+
+    mine = "The model improves by 4.2 BLEU on average, and by 0.8 on low-resource pairs.\n"
+    assert apply_ops(ops, set(), {change.id: mine}) == (
+        "We evaluate on three benchmarks.\n" + mine
+    )
+
+
+def test_your_wording_wins_even_when_the_change_is_accepted() -> None:
+    old, new = "Alpha one.\n", "Alpha two.\n"
+    ops = diff_text(old, new)
+    change = next(o for o in ops if o.type == "change")
+    accepted = {o.id for o in ops}
+    assert apply_ops(ops, accepted, {change.id: "Alpha three.\n"}) == "Alpha three.\n"
+
+
+def test_editing_one_change_leaves_every_other_choice_alone() -> None:
+    old = "One old.\nTwo old.\nThree old.\n"
+    new = "One new.\nTwo new.\nThree new.\n"
+    ops = diff_text(old, new)
+    changes = [o.id for o in ops if o.type == "change"]
+    assert len(changes) == 3
+
+    got = apply_ops(ops, {changes[2]}, {changes[0]: "One mine.\n"})
+    assert got == "One mine.\nTwo old.\nThree new.\n"
+
+
+def test_no_edits_is_exactly_what_it_was_before() -> None:
+    old, new = "Alpha one.\nBeta one.\n", "Alpha two.\nBeta two.\n"
+    ops = diff_text(old, new)
+    assert apply_ops(ops, set(), {}) == apply_ops(ops, set()) == old

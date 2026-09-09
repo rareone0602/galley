@@ -2,16 +2,22 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, applyOps, type DiffOp, type FileDiff, type WordSpan } from '../api'
 
 type View = 'split' | 'inline'
+/** Per file, per change: the wording you typed instead of either side's. */
+type Edits = Record<string, Record<number, string>>
 
 /**
  * Review Claude's draft the way Diffchecker shows a comparison: your text on
  * the left, Claude's on the right, changed passages tinted, the exact words
  * that moved picked out inside them.
  *
- * The merge part is the middle column. Nothing here applies a patch: the
- * backend hands over ops covering the whole file, the result is those ops with
- * your choices substituted in, and Save writes that entire buffer. There is no
- * patch offset to get wrong and no half-applied hunk to go stale.
+ * The merge is the middle column, and it has three answers, not two: keep
+ * yours, take Claude's, or **write a third thing**. Double-click either side to
+ * edit it. Yours-rewritten wins over both, which is the point — Claude's draft
+ * is a suggestion, and the sentence that lands is the one you decided on.
+ *
+ * Nothing here applies a patch. The backend hands over ops covering the whole
+ * file, the result is those ops with your choices substituted in, and Save
+ * writes that entire buffer. There is no patch offset to get wrong.
  */
 export default function MergePane({
   sessionId,
@@ -23,6 +29,8 @@ export default function MergePane({
   const [files, setFiles] = useState<FileDiff[]>([])
   const [active, setActive] = useState(0)
   const [accepted, setAccepted] = useState<Record<string, Set<number>>>({})
+  const [edits, setEdits] = useState<Edits>({})
+  const [editing, setEditing] = useState<number | null>(null)
   const [saved, setSaved] = useState<Record<string, string>>({})
   const [view, setView] = useState<View>('split')
   const [error, setError] = useState<string | null>(null)
@@ -36,6 +44,8 @@ export default function MergePane({
       const body = await api.diff(sessionId)
       setFiles(body.files)
       setAccepted(Object.fromEntries(body.files.map((f) => [f.path, new Set<number>()])))
+      setEdits({})
+      setEditing(null)
       setActive(0)
       setCursor(0)
       setError(null)
@@ -56,6 +66,7 @@ export default function MergePane({
     [file],
   )
   const chosen = file ? accepted[file.path] ?? new Set<number>() : new Set<number>()
+  const mine = file ? edits[file.path] ?? {} : {}
 
   function toggle(id: number) {
     if (!file) return
@@ -74,6 +85,16 @@ export default function MergePane({
     }))
   }
 
+  function writeEdit(id: number, text: string | null) {
+    if (!file) return
+    setEdits((prev) => {
+      const forFile = { ...(prev[file.path] ?? {}) }
+      if (text === null) delete forFile[id]
+      else forFile[id] = text
+      return { ...prev, [file.path]: forFile }
+    })
+  }
+
   function jump(delta: number) {
     if (!changes.length) return
     const next = (cursor + delta + changes.length) % changes.length
@@ -85,7 +106,7 @@ export default function MergePane({
     if (!file) return
     setBusy(true)
     try {
-      const res = await api.writeFile(file.path, applyOps(file.ops, chosen))
+      const res = await api.writeFile(file.path, applyOps(file.ops, chosen, mine))
       setSaved((p) => ({ ...p, [file.path]: `Wrote ${res.bytes.toLocaleString()} bytes` }))
       setError(null)
       onSaved(file.path)
@@ -104,6 +125,8 @@ export default function MergePane({
       </div>
     )
 
+  const editedCount = Object.keys(mine).length
+
   return (
     <div className="merge">
       <div className="merge-bar">
@@ -115,6 +138,7 @@ export default function MergePane({
               onClick={() => {
                 setActive(i)
                 setCursor(0)
+                setEditing(null)
               }}
               title={f.path}
             >
@@ -146,7 +170,8 @@ export default function MergePane({
         </button>
         <span className="muted small">
           {changes.length
-            ? `Change ${cursor + 1} of ${changes.length} · ${chosen.size} accepted`
+            ? `Change ${cursor + 1} of ${changes.length} · ${chosen.size} accepted` +
+              (editedCount ? ` · ${editedCount} rewritten` : '')
             : 'no changes in this file'}
         </span>
         <span className="grow" />
@@ -181,8 +206,15 @@ export default function MergePane({
                 op={op}
                 view={view}
                 accepted={chosen.has(op.id)}
+                edited={mine[op.id]}
+                editing={editing === op.id}
                 index={changes.findIndex((c) => c.id === op.id) + 1}
                 onToggle={() => toggle(op.id)}
+                onEdit={(text) => writeEdit(op.id, text)}
+                onEditing={(on, seed) => {
+                  setEditing(on ? op.id : null)
+                  if (on && mine[op.id] === undefined && seed !== undefined) writeEdit(op.id, seed)
+                }}
                 bind={(el) => {
                   el ? rows.current.set(op.id, el) : rows.current.delete(op.id)
                 }}
@@ -235,49 +267,139 @@ function Change({
   op,
   view,
   accepted,
+  edited,
+  editing,
   index,
   onToggle,
+  onEdit,
+  onEditing,
   bind,
 }: {
   op: DiffOp
   view: View
   accepted: boolean
+  edited: string | undefined
+  editing: boolean
   index: number
   onToggle: () => void
+  onEdit: (text: string | null) => void
+  onEditing: (on: boolean, seed?: string) => void
   bind: (el: HTMLDivElement | null) => void
 }) {
-  const control = (
-    <button
-      className={`take${accepted ? ' on' : ''}`}
-      onClick={onToggle}
-      title={
-        accepted
-          ? 'Accepted — click to keep your wording instead'
-          : "Take Claude's wording for this passage"
-      }
-    >
-      {accepted ? '✓' : '→'}
-    </button>
+  const isEdited = edited !== undefined
+  const state = isEdited ? ' rewritten' : accepted ? ' accepted' : ''
+
+  const controls = (
+    <>
+      <button
+        className={`take${accepted && !isEdited ? ' on' : ''}`}
+        onClick={onToggle}
+        disabled={isEdited}
+        title={
+          isEdited
+            ? 'You rewrote this one; revert it to choose a side again'
+            : accepted
+              ? 'Accepted — click to keep your wording instead'
+              : "Take Claude's wording for this passage"
+        }
+      >
+        {accepted ? '✓' : '→'}
+      </button>
+      <button
+        className={`take pen${isEdited ? ' on' : ''}`}
+        onClick={() =>
+          isEdited && !editing
+            ? onEditing(true)
+            : onEditing(!editing, accepted ? op.new : op.old)
+        }
+        title="Write your own wording for this passage"
+      >
+        ✎
+      </button>
+    </>
   )
+
+  // Editing takes the whole row: the passage is one sentence, and you are
+  // writing prose, not filling in a field.
+  if (editing)
+    return (
+      <div className={`drow change editing${state}`} ref={bind}>
+        <div className="editing-cell">
+          <div className="row small muted">
+            <span>Your wording for change {index}</span>
+            <span className="grow" />
+            <button className="tiny" onClick={() => onEdit(op.old)}>
+              Start from yours
+            </button>
+            <button className="tiny" onClick={() => onEdit(op.new)}>
+              Start from Claude's
+            </button>
+          </div>
+          <textarea
+            autoFocus
+            value={edited ?? op.old}
+            rows={Math.min(10, (edited ?? op.old).split('\n').length + 1)}
+            onChange={(e) => onEdit(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') onEditing(false)
+            }}
+          />
+          <div className="row">
+            <span className="muted small">
+              This text is written verbatim. Keep the trailing newline if it had one.
+            </span>
+            <span className="grow" />
+            <button
+              className="tiny"
+              onClick={() => {
+                onEdit(null)
+                onEditing(false)
+              }}
+            >
+              Discard
+            </button>
+            <button className="tiny primary" onClick={() => onEditing(false)}>
+              Done
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+
+  if (isEdited)
+    return (
+      <div className={`drow change${state}`} ref={bind}>
+        <div className="cell rewritten" onDoubleClick={() => onEditing(true)}>
+          <span className="idx">{index}</span>
+          <span className="tag">yours, rewritten</span>
+          {edited.replace(/\n+$/, '') || <span className="nothing">deleted</span>}
+        </div>
+        <div className="gutter">{controls}</div>
+        <div className="cell muted-side">
+          <span className="tag">Claude proposed</span>
+          {op.new.replace(/\n+$/, '') || <span className="nothing">deleted</span>}
+        </div>
+      </div>
+    )
 
   if (view === 'inline')
     return (
-      <div className={`drow change inline${accepted ? ' accepted' : ''}`} ref={bind}>
+      <div className={`drow change inline${state}`} ref={bind}>
         <div className="cell stacked">
           {op.old.trim() && (
-            <div className="line old">
+            <div className="line old" onDoubleClick={() => onEditing(true, op.old)}>
               <span className="marker">−</span>
               <Words spans={op.old_words} kind="del" fallback={op.old} />
             </div>
           )}
           {op.new.trim() && (
-            <div className="line new">
+            <div className="line new" onDoubleClick={() => onEditing(true, op.new)}>
               <span className="marker">+</span>
               <Words spans={op.new_words} kind="ins" fallback={op.new} />
             </div>
           )}
           <div className="controls">
-            {control}
+            {controls}
             <span className="muted small">
               {accepted ? "Claude's wording will be written" : 'your wording will be kept'}
             </span>
@@ -287,8 +409,8 @@ function Change({
     )
 
   return (
-    <div className={`drow change${accepted ? ' accepted' : ''}`} ref={bind}>
-      <div className="cell old">
+    <div className={`drow change${state}`} ref={bind}>
+      <div className="cell old" onDoubleClick={() => onEditing(true, op.old)}>
         <span className="idx">{index}</span>
         {op.old.trim() ? (
           <Words spans={op.old_words} kind="del" fallback={op.old} />
@@ -296,8 +418,8 @@ function Change({
           <span className="nothing">nothing here</span>
         )}
       </div>
-      <div className="gutter">{control}</div>
-      <div className="cell new">
+      <div className="gutter">{controls}</div>
+      <div className="cell new" onDoubleClick={() => onEditing(true, op.new)}>
         {op.new.trim() ? (
           <Words spans={op.new_words} kind="ins" fallback={op.new} />
         ) : (
