@@ -63,6 +63,11 @@ class Deps:
         return self.cfg.paths.state_dir / "build" / f"{stem}.pdf"
 
     def read_working(self, rel: str) -> str:
-        """A file as it is on disk right now, empty if it is not there."""
+        """A file as it is on disk right now, empty if it is not there.
+
+        The encoding is named rather than left to the process locale: a paper
+        is full of non-ASCII, and a server started from a different shell must
+        not read the same file differently.
+        """
         path = self.cfg.paths.paper_repo / rel
-        return path.read_text(errors="replace") if path.is_file() else ""
+        return path.read_text(encoding="utf-8", errors="replace") if path.is_file() else ""

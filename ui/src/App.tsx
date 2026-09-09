@@ -41,6 +41,11 @@ export default function App() {
   const [jumpTo, setJumpTo] = useState<{ path: string; line: number; nonce: number } | null>(
     null,
   )
+  const [showInPdf, setShowInPdf] = useState<{
+    path: string
+    line: number
+    nonce: number
+  } | null>(null)
 
   const pdfPanel = useRef<ImperativePanelHandle>(null)
 
@@ -110,6 +115,11 @@ export default function App() {
     setOpenPath(where.path)
     setTab('editor')
     setJumpTo({ path: where.path, line: where.line, nonce: Date.now() })
+  }, [])
+
+  /** The arrow the other way: the line you are writing, found on the page. */
+  const showLineInPdf = useCallback((path: string, line: number) => {
+    setShowInPdf({ path, line, nonce: Date.now() })
   }, [])
 
   const askAboutSelection = useCallback(
@@ -189,6 +199,16 @@ export default function App() {
                   }}
                   reloadKey={treeKey}
                   dirty={dirty}
+                  // A file that moved has to take the editor with it. The
+                  // editor reloads on `path` alone, so this is the whole of it.
+                  onRenamed={(from, to) => {
+                    if (openPath === from) setOpenPath(to)
+                  }}
+                  // One that has gone would leave the editor pointing at
+                  // nothing, so fall back to what the build compiles.
+                  onDeleted={(path) => {
+                    if (openPath === path) setOpenPath(config?.main_tex ?? null)
+                  }}
                 />
               </aside>
             </Panel>
@@ -315,6 +335,7 @@ export default function App() {
                   onAsk={askAboutSelection}
                   busy={starting}
                   jumpTo={jumpTo}
+                  onShowInPdf={showLineInPdf}
                 />
               )}
               {tab === 'review' &&
@@ -353,6 +374,7 @@ export default function App() {
             latexdiffAvailable={config?.latexdiff ?? false}
             onCollapse={togglePdf}
             onJump={jumpToSource}
+            showInPdf={showInPdf}
           />
         </Panel>
       </PanelGroup>

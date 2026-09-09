@@ -8,10 +8,12 @@ import { configApi } from './config'
 import { diffApi } from './diff'
 import { filesApi } from './files'
 import { gitApi } from './git'
+import { projectApi } from './project'
 import { sessionsApi } from './sessions'
 import { synctexApi } from './synctex'
 
 export * from './types'
+export * from './project'
 export { applyOps } from './diff'
 export { json, qs } from './client'
 
@@ -21,6 +23,7 @@ export const api = {
   ...filesApi,
   ...diffApi,
   ...gitApi,
+  ...projectApi,
   ...buildApi,
   ...synctexApi,
 }

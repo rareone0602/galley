@@ -137,3 +137,25 @@ def test_no_edits_is_exactly_what_it_was_before() -> None:
     old, new = "Alpha one.\nBeta one.\n", "Alpha two.\nBeta two.\n"
     ops = diff_text(old, new)
     assert apply_ops(ops, set(), {}) == apply_ops(ops, set()) == old
+
+
+# -- what the merge pane promises before it writes ---------------------------
+
+
+def test_the_size_the_pane_promises_is_the_size_that_lands(client, paper_repo) -> None:
+    """Save says how big the file becomes before it writes it.
+
+    The plan counts UTF-8 bytes, because that is what a file on disk is
+    measured in — an em dash is one character and three bytes — and the pane
+    would be lying to him if the write landed anything else.
+    """
+    old = "We evaluate on three benchmarks.\nThe margin is large — very large.\n"
+    new = "We evaluate on four benchmarks.\nThe margin is large — very large.\n"
+    ops = diff_text(old, new)
+    merged = apply_ops(ops, {o.id for o in ops if o.type == "change"})
+    assert merged == new
+
+    assert client.put("/api/files/main.tex", json={"content": merged}).json()["ok"]
+    landed = paper_repo / "main.tex"
+    assert landed.read_text(encoding="utf-8") == merged
+    assert landed.stat().st_size == len(merged.encode("utf-8"))

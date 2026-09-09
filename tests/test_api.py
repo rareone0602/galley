@@ -273,7 +273,7 @@ async def test_compile_starts_in_the_background_and_reports_progress(client, mon
     import galley.services.latex as latex
 
     monkeypatch.setattr(
-        latex, "compile_pdf", lambda *a, **k: latex.CompileResult(True, None, [], [], "")
+        latex, "compile_pdf", lambda *a, **k: latex.CompileResult(True, None, [], "")
     )
     started = client.post("/api/compile", json={}).json()
     assert started["state"] in ("running", "done")
@@ -292,7 +292,7 @@ async def test_review_starts_in_the_background(client, monkeypatch) -> None:
     import galley.services.latex as latex
 
     monkeypatch.setattr(
-        latex, "latexdiff_pdf", lambda *a, **k: latex.CompileResult(True, None, [], [], "")
+        latex, "latexdiff_pdf", lambda *a, **k: latex.CompileResult(True, None, [], "")
     )
     row = client.post("/api/sessions", json={"prompt": "review me", "start": False}).json()
     started = client.post("/api/review", json={"session_id": row["id"]}).json()
@@ -334,7 +334,7 @@ async def test_asking_twice_joins_the_run_already_going(client, monkeypatch) -> 
     def slow(*_a, **_k):
         calls.append(1)
         time.sleep(0.4)
-        return latex.CompileResult(True, None, [], [], "")
+        return latex.CompileResult(True, None, [], "")
 
     monkeypatch.setattr(latex, "compile_pdf", slow)
     client.post("/api/compile", json={})

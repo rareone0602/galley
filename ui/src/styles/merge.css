@@ -11,7 +11,14 @@
   flex: none;
   min-width: 0;
 }
-.merge-bar.second { background: var(--bg-primary); }
+.merge-bar.second { background: var(--bg-primary); flex-wrap: wrap; row-gap: 4px; }
+.merge-bar .where { font-size: var(--fs-sm); white-space: nowrap; }
+.merge-bar .session-tally { white-space: nowrap; }
+.merge-bar button.tiny.on {
+  background: var(--bg-accent-soft);
+  border-color: var(--bg-accent);
+  color: var(--green-60);
+}
 .merge-saved { margin: 8px 10px 0; flex: none; }
 
 .filepicker { display: flex; gap: 4px; overflow-x: auto; min-width: 0; }
@@ -28,9 +35,22 @@
   color: var(--content-primary);
   font-weight: 600;
 }
+/* The badge counts what is still open, so the rail of files reads as a
+   to-do list: a number while there is work, a tick when there is none. */
+.filepicker button .count.done { background: transparent; color: var(--green-60); }
 
-.diff { flex: 1; overflow: auto; min-height: 0; }
-.diff-head, .drow { display: grid; grid-template-columns: 1fr 34px 1fr; }
+/* -- the file, and the map of it down the side ------------------------- */
+
+.merge-body { flex: 1; display: flex; min-height: 0; }
+.diff { flex: 1; overflow: auto; min-height: 0; position: relative; }
+.diff-head, .drow {
+  display: grid;
+  /* minmax(0, 1fr) rather than 1fr: a track sized to its min-content would be
+     pushed wide by one unbreakable \ref{...}, and the whole pane would scroll
+     sideways. The cells break a long token instead. */
+  grid-template-columns: minmax(0, 1fr) 34px minmax(0, 1fr);
+  border-left: 3px solid transparent;
+}
 .diff.inline .drow { display: block; }
 .diff-head {
   position: sticky;
@@ -52,13 +72,16 @@
 }
 .col-head.theirs { color: var(--green-60); }
 
+/* Both columns are read as prose, so they take the editor's register — the
+   same mono face, size and leading as CodeMirror — rather than the smaller
+   type of the chrome around them. */
 .drow .cell {
   font-family: var(--mono);
-  font-size: var(--fs-sm);
-  line-height: 1.65;
-  padding: 4px 12px;
+  font-size: var(--fs);
+  line-height: 1.6;
+  padding: 6px 12px;
   white-space: pre-wrap;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
   min-width: 0;
 }
 .drow .cell.equal { color: var(--content-secondary); }
@@ -71,6 +94,15 @@
 }
 
 .drow.change { border-top: 1px solid var(--border-divider); border-bottom: 1px solid var(--border-divider); }
+/* The left edge is the answer, in the same colours as the map: grey while the
+   question is open, green taken, dark kept, amber rewritten. */
+.drow.change { border-left-color: var(--neutral-30); }
+.drow.change.taken { border-left-color: var(--bg-accent); }
+.drow.change.kept { border-left-color: var(--content-secondary); }
+.drow.change.rewritten { border-left-color: var(--content-warning); }
+/* Where the keyboard is. */
+.drow.change.current { outline: 2px solid var(--border-active); outline-offset: -2px; }
+
 .drow.change .cell.old { background: var(--red-10); color: var(--content-danger); }
 .drow.change .cell.new { background: var(--green-10); color: var(--green-60); }
 .drow.change .cell .idx {
@@ -84,9 +116,9 @@
 .drow.change .nothing { font-style: italic; opacity: 0.55; }
 /* Whichever side loses is dimmed, so the file you are about to write reads as
    the solid one. */
-.drow.change:not(.accepted) .cell.new { opacity: 0.5; }
-.drow.change.accepted .cell.old { opacity: 0.45; }
-.drow.change.accepted .cell.old mark.del { text-decoration: line-through; }
+.drow.change:not(.taken) .cell.new { opacity: 0.5; }
+.drow.change.taken .cell.old { opacity: 0.45; }
+.drow.change.taken .cell.old mark.del { text-decoration: line-through; }
 
 .drow .gutter {
   background: var(--bg-secondary);
@@ -108,6 +140,7 @@ button.take {
   color: var(--content-secondary);
 }
 button.take.on { background: var(--bg-accent); border-color: var(--bg-accent); color: var(--white); }
+button.take.keep.on { background: var(--content-secondary); border-color: var(--content-secondary); color: var(--white); }
 button.take:hover:not(.on) { border-color: var(--bg-accent); color: var(--green-60); }
 
 /* Inline: the same choices, stacked, for a narrow middle column. */
@@ -116,17 +149,43 @@ button.take:hover:not(.on) { border-color: var(--bg-accent); color: var(--green-
 .diff.inline .line .marker { width: 12px; flex: none; color: var(--content-secondary); }
 .diff.inline .line.old { color: var(--content-danger); }
 .diff.inline .line.new { color: var(--green-60); }
-.diff.inline .drow.change:not(.accepted) .line.new { opacity: 0.5; }
-.diff.inline .drow.change.accepted .line.old { opacity: 0.45; text-decoration: line-through; }
+.diff.inline .drow.change:not(.taken) .line.new { opacity: 0.5; }
+.diff.inline .drow.change.taken .line.old { opacity: 0.45; text-decoration: line-through; }
 .diff.inline .controls { display: flex; gap: 8px; align-items: center; margin-top: 6px; padding-left: 20px; }
 
 mark.del { background: rgba(184, 58, 51, 0.18); color: var(--content-danger); border-radius: 2px; padding: 0 1px; }
 mark.ins { background: rgba(9, 136, 66, 0.18); color: var(--green-60); border-radius: 2px; padding: 0 1px; }
 
+/* The whole file at a glance: one tick per change, where it actually is. */
+.changemap {
+  position: relative;
+  flex: none;
+  width: 14px;
+  background: var(--bg-secondary);
+  border-left: 1px solid var(--border-divider);
+}
+.changemap .here { position: absolute; left: 0; right: 0; min-height: 10px; background: var(--neutral-20); }
+.changemap .tick {
+  position: absolute;
+  left: 3px;
+  right: 3px;
+  height: 4px;
+  padding: 0;
+  border: none;
+  border-radius: 2px;
+  background: var(--neutral-40);
+}
+.changemap .tick.open { background: var(--neutral-40); }
+.changemap .tick.taken { background: var(--bg-accent); }
+.changemap .tick.kept { background: var(--content-secondary); }
+.changemap .tick.rewritten { background: var(--content-warning); }
+.changemap .tick:hover { left: 1px; right: 1px; }
+.changemap .tick.current { left: 0; right: 0; height: 6px; box-shadow: 0 0 0 1px var(--border-active); }
+
 /* -- a change you rewrote yourself ------------------------------------- */
 
 button.take.pen { font-size: 11px; }
-button.take.pen.on { background: var(--content-warning); border-color: var(--content-warning); }
+button.take.pen.on { background: var(--content-warning); border-color: var(--content-warning); color: var(--white); }
 button.take:disabled { opacity: 0.4; }
 
 .drow.change .cell .tag {
@@ -141,9 +200,8 @@ button.take:disabled { opacity: 0.4; }
 .drow.change .cell.rewritten { background: var(--yellow-10); color: var(--content-warning); }
 /* Once you have written your own, the proposal is only there for reference. */
 .drow.change .cell.muted-side { background: var(--bg-secondary); color: var(--content-secondary); opacity: 0.7; }
-.drow.change.rewritten { border-left: 3px solid var(--content-warning); }
 
-.drow.change.editing { display: block; border-left: 3px solid var(--content-warning); }
+.drow.change.editing { display: block; }
 .editing-cell {
   padding: 8px 12px;
   background: var(--bg-secondary);
@@ -153,8 +211,42 @@ button.take:disabled { opacity: 0.4; }
 }
 .editing-cell textarea {
   font-family: var(--mono);
-  font-size: var(--fs-sm);
-  line-height: 1.65;
+  font-size: var(--fs);
+  line-height: 1.6;
   background: var(--bg-primary);
   min-height: 60px;
 }
+
+/* -- the keyboard, and what Save would write --------------------------- */
+
+.shortcuts,
+.save-plan {
+  flex: none;
+  margin: 8px 10px 0;
+  padding: 10px 12px;
+  background: var(--bg-primary);
+  border: 1px solid var(--neutral-30);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 14px rgba(27, 34, 44, 0.16);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.shortcuts table { width: auto; }
+.shortcuts td { border-bottom: none; padding: 2px 10px 2px 0; font-size: var(--fs-sm); }
+.shortcuts td.keys { white-space: nowrap; }
+.shortcuts kbd {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--content-primary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--neutral-30);
+  border-bottom-width: 2px;
+  border-radius: 3px;
+  padding: 1px 5px;
+  margin-right: 4px;
+}
+.save-plan td { font-size: var(--fs-sm); vertical-align: baseline; }
+.save-plan td.counts { color: var(--content-secondary); }
+.save-plan td.bytes { text-align: right; white-space: nowrap; }
+.save-plan .delta { color: var(--content-secondary); }

@@ -324,6 +324,157 @@ shown in the editor bar, and remembered in `localStorage`.
 
 The binding is scoped to the editor. Outside it, Ctrl +/- is still the browser's.
 
+### 16. Seams, so more than one thing can be built at once
+
+Three files had become the place every feature had to touch: `galley/app.py`
+(459 lines, every route a closure inside `create_app`), `ui/src/api.ts` (one
+object, every method), and `ui/src/styles.css` (750 lines, every rule). None
+of them was wrong; they were just single-threaded. Any second piece of work
+had to queue behind the first.
+
+Each is now split along the line the UI already draws — by area of the screen.
+
+- **`galley/routes/`** holds one module per area: `config`, `sessions`,
+  `files`, `diff`, `git`, `build`, `synctex`. Each exposes
+  `register(app, deps)`. Everything the routes used to close over is named
+  once on `Deps` (`galley/routes/deps.py`): the config, the database, the bus,
+  the agent supervisor, the work table, and the four questions more than one
+  area asks — `require_session`, `repo_for`, `session_changes`, `pdf_path`,
+  `read_working`. `app.py` is now 96 lines and does nothing but compose.
+  Adding an area is an import and one entry in `AREAS`.
+
+- **`ui/src/api/`** mirrors that split: `types.ts` for the shapes more than one
+  area needs, `client.ts` for the single place a request is made and an error
+  unwrapped, then one module per area, composed into the same `api` object in
+  `index.ts`. Nothing that calls `api.something()` had to change.
+
+- **`ui/src/styles/`** is twelve files in cascade order behind an
+  `index.css`. The split is provably inert: the built stylesheet came out with
+  the same content hash as before it, `index-B4uKyZpz.css`.
+
+No behaviour changed, and the 165 tests that passed before passed after. The
+point of recording it here is that it is the reason the sections below could be
+written at the same time rather than one after another.
+
+### 17. Nothing you typed is ever lost
+
+The editor used to keep the open file's text in one place: CodeMirror's own
+state. That state is overwritten when a different file is opened, and thrown
+away entirely when you leave the Editor tab — `App` unmounts the component. So
+typing three paragraphs into `intro.tex` and then clicking `method.tex`, or
+clicking Review, lost them. No warning, nothing on disk.
+
+The buffers now live outside the component, in
+`ui/src/components/editor/buffers.ts`, one per path: the whole `EditorState`
+(text, cursor **and** undo history, which CodeMirror keeps in the state, so it
+comes free), the scroll position, the text the buffer was based on, and what
+the bar should say. Leaving a file writes the live state back; returning
+restores it. The store also owns the browser's "leave site?" prompt, because it
+is the only thing that knows whether anything anywhere is unsaved.
+
+Opening a file now reconciles rather than replaces. If the file on disk has
+moved under an unsaved buffer — a merge was saved — your text stays and the bar
+offers a Reload; that Reload is destructive, so it asks, and its replacement
+goes *into* the undo history so Ctrl+Z brings your version back.
+
+### 18. Two more ways between the source and the page
+
+`SyncTeX.view(path, line)` is the complement of `edit()`: Overleaf's arrow, from
+the line you are writing to where it printed. `Ctrl/Cmd+Alt+J`, or the button in
+the editor bar. A line that printed nothing — a comment, a blank line — falls
+*forward* to the next line that did and says so; the line above is a different
+sentence, so falling back would be a lie.
+
+The compile log is parsed into `Problem`s — severity, message, path, line —
+rather than a list of strings, and the PDF pane lists them so a click opens the
+line. Neither a LaTeX warning nor a `!` block names its file, so the file comes
+from tracking TeX's `(`/`)` transcript brackets, and is then *checked*: it must
+be a file of yours, long enough to have that line, or the message is kept and
+the location dropped. A wrong line number is worse than none.
+
+### 19. The click in the gap between two lines
+
+Reverse search had been wrong about a third of the time and nobody had noticed,
+because every check had probed the centre of a line of type.
+
+Between two printed lines there is leading, and no line box covers it. The only
+box that does is the column holding the whole page, whose own label is wherever
+that column was opened — on this paper, the line of `\end{abstract}`. So a
+click in the gap answered with a file you were not reading. Measured over
+62,952 probes on twelve pages of the real paper: **22.3% of clicks landed on a
+line whose printed rectangle is more than 12bp away**, interleaved with correct
+answers a few points above and below.
+
+The fix is to look only at boxes that hold words. A box holding nothing but
+other boxes is structure, not a line of type, and when no line covers the point
+the nearest one is taken. The same 62,952 probes now put **0.5%** more than 12bp
+away, and those are clicks in genuinely blank regions where no line is within
+12bp — there is no right answer, and the nearest line is the honest one.
+
+`tests/test_synctex.py` pins it with a hand-written file in the shape the real
+one has: a column that holds boxes and no words, two lines of type, and a probe
+in the gap. It answers 99 before the change and 12 after.
+
+### 20. Completing what the project already contains
+
+`galley/services/project.py` reads the project — via `files.listing`, so git
+still decides what is in it — for every `\label`, every `.bib` entry, and every
+macro the paper defines. On FLM that is 238 labels, 118 citations and 568 macro
+definitions (301 distinct names) across 271 files, built in 175 ms and 5 ms
+warm. `.sty` and `.cls` are read as well as `.tex`, which matters here: almost
+every name this paper invents lives in `flmnotation.sty`.
+
+The completion list carries what you would otherwise open another file to find
+— author, year and title beside a citation key, the section or caption beside a
+label, the argument count beside a macro — because a key on its own does not
+let you choose between `sweep` and `sweeplaws`.
+
+One thing worth recording, because it cost an hour and no test would have
+caught it. The source was registered as
+`EditorState.languageData.of(() => [{ autocomplete: source(index) }])`, which
+calls `source(index)` **every time CodeMirror asks**, handing back a new
+function each time. CodeMirror tells one completion source from another by
+identity, so every update looked like a new source: the query already in flight
+was discarded and started again, forever. The list never appeared, nothing was
+logged, and the completion source itself was demonstrably running and returning
+118 correct options. It was found by asking CodeMirror for its own
+`completionStatus`, which read `pending` on every update. The source is now
+built once.
+
+### 21. The rail does what Overleaf's does
+
+New file, new folder, rename, delete, and drag a figure in. All of it through
+`files.resolve()`, which stays the single owner of the containment check.
+`git mv` and `git rm` for tracked files so history follows the file; a plain
+rename for untracked ones.
+
+The refusals are the interesting part: a name already taken, a folder with
+anything in it, a destination folder that does not exist, a path `.gitignore`
+covers (writing it would produce a file that never reaches Overleaf and never
+shows in the rail — a silent success that looks exactly like a bug), and
+`main.tex` itself, for rename as well as delete, since a rename breaks the
+build just as thoroughly.
+
+Writing through `resolve()` had one trap. It follows symbolic links, which is
+right for reading and for the containment check, but a delete built on it would
+unlink the *target* — removing the real figure and leaving a dangling link. The
+write paths now check containment and then act on the unresolved path.
+
+### 22. The merge pane is a review tool
+
+The decision model came first: an `accepted` set could not tell "I read this
+and kept my sentence" from "I have not looked at this yet", so no honest header
+could be written. There are now three answers per change and a fourth state,
+undecided, and the accepted set and the edits map are derived from them at the
+one moment they are needed — assembling the file. `applyOps` and `apply_ops` are
+untouched, so the byte-exact twin invariant holds.
+
+On top of that: a keyboard (one table owns every binding, so a key cannot exist
+without appearing in the legend), a header that reads `Change 3 of 17 · 5 taken
+· 2 rewritten`, ticks down the side at each change's *measured* position, take
+all / keep all per file with an undo stack, and a Save panel that says which
+files it would write and what size each becomes before it writes anything.
+
 ## What has been exercised, and what has not
 
 **Run against the real paper (258 `.tex` files, 13,153 segments):** the
@@ -388,7 +539,25 @@ six cases — reject all, accept all, one accepted, one rewritten, a rewrite ove
 an accepted change, and a mixture — and agrees with the Python twin on every
 one.
 
+**Exercised in a real browser, this round.** Typed into `intro.tex`, opened
+`related.tex`, came back: the words were there, the rail still marked the file
+unsaved while it was off screen, and Ctrl+Z took the typing back — so the undo
+history survived the round trip. `\cite{aze` offered
+`azerbayev2023proofnet`, `azerbayev2024llemma` and `silver2018alphazero` with
+authors and years; `\ref{sec:exp` offered `sec:experiments` as
+`section · Experiments`; `\draftn` offered `\draftnote` with its three
+arguments. Compile drew all 24 pages, and the arrow from line 11 marked two
+rectangles on page 1. The merge pane opened on the live session and read
+`Change 1 of 12 · 0 taken · 0 rewritten · 0 kept · 12 to go`.
+
 **Not yet exercised live:**
 
 - **An Overleaf push.** `sync` refuses off-branch and on a dirty tree (both
   tested); the fetch/rebase/push itself has not been fired at the live bridge.
+- **Anything in `ui/` has no automated test at all.** There is no test runner
+  configured for the front end, so every claim about the editor, the merge pane,
+  the rail and the completion list rests on the browser checks above rather than
+  on a suite that runs again tomorrow. The completion bug in section 20 is
+  exactly the shape this gap hides: types were clean, the backend was green, and
+  the feature did nothing. Adding a runner is a real decision, not a tidy-up,
+  and it is Po Hung's to make.

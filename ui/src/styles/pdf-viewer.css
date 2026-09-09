@@ -8,7 +8,11 @@
   padding: 0 2px 6px;
 }
 .pdf-zoom .muted { white-space: nowrap; }
+/* Positioned, so a page's offsetTop is measured from the top of the scroller
+   rather than from whatever ancestor happened to be positioned. Scrolling to a
+   page depends on that number being right. */
 .pdf-scroll {
+  position: relative;
   flex: 1;
   min-height: 0;
   overflow: auto;
@@ -37,9 +41,16 @@
   pointer-events: none;
 }
 
-/* Arriving from the PDF: show where you landed, then get out of the way. */
-.cm-jump-flash { animation: jump-flash 1.6s ease-out; }
-@keyframes jump-flash {
+/* Arriving from the editor: the same register the other way round. It fades to
+   nothing rather than staying put, because it is telling you where you have
+   just arrived, not marking the line as special from now on. */
+.pdf-mark {
+  position: absolute;
+  border-radius: 2px;
+  pointer-events: none;
+  animation: pdf-jump-flash 1.6s ease-out forwards;
+}
+@keyframes pdf-jump-flash {
   0%, 45% { background-color: rgba(9, 136, 66, 0.28); }
   100% { background-color: transparent; }
 }

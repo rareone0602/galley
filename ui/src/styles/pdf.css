@@ -40,3 +40,62 @@ iframe.pdf {
   min-height: 0;
   box-shadow: 0 1px 3px rgba(27, 34, 44, 0.16);
 }
+
+/* -- what the compile had to say --------------------------------------- */
+/* Folded to a count by default. A clean paper still carries a dozen underfull
+   boxes you have decided to live with, and they must not push the page off the
+   screen; an error opens the list, because an error is why you are looking. */
+
+.pdf-problems {
+  flex: none;
+  border: 1px solid var(--border-divider);
+  border-radius: var(--radius);
+  background: var(--bg-primary);
+  overflow: hidden;
+}
+.pdf-problems.failed { border-color: var(--content-danger); }
+.pdf-problems-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  width: 100%;
+  border: none;
+  border-radius: 0;
+  text-align: left;
+  padding: 5px 9px;
+  color: var(--content-secondary);
+}
+.pdf-problems.failed .pdf-problems-head { color: var(--content-danger); }
+.pdf-problems-head .caret { color: var(--content-disabled); }
+
+.pdf-problem-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 32vh;
+  overflow: auto;
+  border-top: 1px solid var(--border-divider);
+}
+.pdf-problem-list li { border-left: 3px solid var(--content-warning); }
+.pdf-problem-list li.error { border-left-color: var(--content-danger); }
+.pdf-problem-list li + li { border-top: 1px solid var(--border-divider); }
+
+.pdf-problem {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  border: none;
+  border-radius: 0;
+  text-align: left;
+  white-space: normal;
+  padding: 5px 9px;
+}
+.pdf-problem:disabled { color: var(--content-secondary); }
+.pdf-problem .where {
+  flex: none;
+  font-size: 11px;
+  color: var(--green-60);
+  text-decoration: underline dotted;
+}
+.pdf-problem .what { word-break: break-word; }

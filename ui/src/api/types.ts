@@ -38,6 +38,21 @@ export type Selection = { path: string; start: number; end: number; text: string
 /** Where a point on the printed page came from. `line` is 1-based. */
 export type SourceLocation = { path: string; line: number; in_project: boolean }
 
+/** A rectangle on one page, in big points from that page's top-left corner —
+ *  the same measure a double-click on the PDF sends back the other way. */
+export type PageArea = { page: number; x: number; y: number; width: number; height: number }
+
+/** Where a source line ended up in print. `line` is the line that was actually
+ *  found: it differs from `asked_line` when the line you asked about printed
+ *  nothing and the search fell forward to the next one that did. */
+export type SourceView = {
+  path: string
+  asked_line: number
+  line: number
+  fell_forward: boolean
+  areas: PageArea[]
+}
+
 export type Session = {
   id: string
   slug: string
@@ -96,15 +111,24 @@ export type LogEvent = {
   ts: number
 }
 
-/** A long job's state. `ok`/`errors` are only present once state is "done". */
+/** One thing the compile log says you should go and look at. `path` and `line`
+ *  are null unless the log said so plainly or the guess could be checked: being
+ *  sent to the wrong sentence is worse than being sent nowhere. */
+export type Problem = {
+  severity: 'error' | 'warning'
+  message: string
+  path: string | null
+  line: number | null
+}
+
+/** A long job's state. `ok`/`problems` are only present once state is "done". */
 export type Work = {
   state: 'idle' | 'running' | 'done' | 'failed'
   elapsed_seconds: number | null
   error?: string
   ok?: boolean
   pdf?: string | null
-  errors?: string[]
-  undefined?: string[]
+  problems?: Problem[]
   log_tail?: string
 }
 

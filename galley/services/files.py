@@ -1,14 +1,24 @@
-"""The project file tree, the way Overleaf's left rail shows it.
+"""The project file tree, the way Overleaf's left rail shows it, and the four
+things that rail can do to it: create, rename, delete, and take an upload.
 
 Git decides what is in the project, not the filesystem: `git ls-files` plus the
 untracked-but-not-ignored files is exactly the set you would see in a fresh
 clone, so build artefacts, `.worktrees/`, and everything else `.gitignore`
 covers never appear. That also means the tree is the same set of files that can
 reach Overleaf, which is the only definition of "the project" that matters here.
+
+The same rule decides what may be written. A path `.gitignore` covers is
+refused rather than created, because a file that cannot reach Overleaf cannot
+be part of the paper, and a silent success there looks exactly like a bug.
+`resolve()` is the one containment check in Galley; every function below that
+touches the disk goes through it.
 """
 
 from __future__ import annotations
 
+import os
+import re
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -24,6 +34,31 @@ IMAGE_SUFFIXES = frozenset(".png .jpg .jpeg .gif .svg .webp".split())
 FIGURE_SUFFIXES = frozenset(".pdf .eps .ps".split())
 
 HIDDEN = (".worktrees", ".git", ".galley")
+
+# A new name has to survive three readers: LaTeX, which cannot `\input` a name
+# containing a space or any of # % $ & { } ~ ^ \ ; git; and whatever filesystem
+# Overleaf runs on. An allowlist is the honest intersection. A leading dot is
+# out because a dotfile is plumbing rather than paper — and because it is how
+# `..` would get in.
+NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]*\Z")
+
+# A figure is a few megabytes. The whole body is held in memory while it is
+# written, and anything past this is a slip rather than a plot.
+MAX_UPLOAD_BYTES = 32 * 1024 * 1024
+
+
+class InvalidName(ValueError):
+    """A name Galley will not put in a paper. The message says which rule."""
+
+
+class Refused(ValueError):
+    """The name is fine; the project is not in a state where this can happen.
+
+    Something is already there, the folder is not empty, the file is the one
+    the build compiles. Distinct from `InvalidName` because the caller can fix
+    an invalid name by retyping it, and one of these by doing something else
+    first.
+    """
 
 
 def kind_of(rel: str) -> str:
@@ -46,13 +81,32 @@ def is_text(rel: str) -> bool:
 
 
 def listing(repo: Path) -> list[str]:
-    """Every path in the project, sorted, as forward-slash relatives."""
+    """Every file in the project, sorted, as forward-slash relatives."""
     tracked = git.run(repo, "ls-files", "-z").split("\0")
     untracked = git.run(
         repo, "ls-files", "--others", "--exclude-standard", "-z"
     ).split("\0")
     paths = {p for p in (*tracked, *untracked) if p}
     return sorted(p for p in paths if not p.split("/")[0] in HIDDEN)
+
+
+def empty_folders(repo: Path, files: list[str]) -> list[str]:
+    """Folders you have made but not yet filled.
+
+    Git does not track a directory, so a folder you have just created has no
+    file in `listing()` to hang it on and the rail would look as though New
+    folder had done nothing. `--directory` reports exactly the untracked
+    folders git can see, and `--exclude-standard` has already dropped the ones
+    `.gitignore` covers, so the rule of the module still holds.
+    """
+    out = git.run(repo, "ls-files", "--others", "--exclude-standard", "--directory", "-z")
+    folders = [entry.rstrip("/") for entry in out.split("\0") if entry.endswith("/")]
+    return [
+        folder
+        for folder in folders
+        if folder.split("/")[0] not in HIDDEN
+        and not any(f.startswith(folder + "/") for f in files)
+    ]
 
 
 @dataclass
@@ -78,17 +132,21 @@ def tree(repo: Path) -> list[dict]:
     root = Node("", "", "dir")
     index: dict[str, Node] = {"": root}
 
-    for rel in listing(repo):
-        parts = rel.split("/")
-        prefix = ""
-        for part in parts[:-1]:
-            parent = index[prefix]
-            prefix = f"{prefix}/{part}" if prefix else part
-            if prefix not in index:
-                node = Node(part, prefix, "dir")
-                parent.children.append(node)
-                index[prefix] = node
-        index[prefix].children.append(Node(parts[-1], rel, kind_of(rel)))
+    def folder(prefix: str) -> Node:
+        """The node for a folder, making the chain above it if need be."""
+        if prefix not in index:
+            head, _, name = prefix.rpartition("/")
+            node = Node(name, prefix, "dir")
+            folder(head).children.append(node)
+            index[prefix] = node
+        return index[prefix]
+
+    files = listing(repo)
+    for rel in files:
+        head, _, name = rel.rpartition("/")
+        folder(head).children.append(Node(name, rel, kind_of(rel)))
+    for rel in empty_folders(repo, files):
+        folder(rel)
 
     def order(node: Node) -> None:
         node.children.sort(key=lambda c: (c.type != "dir", c.name.lower()))
@@ -104,7 +162,9 @@ def resolve(repo: Path, rel: str) -> Path:
     """A path inside `repo`, or ValueError.
 
     One owner for the containment check: every route that names a file goes
-    through here, so there is no second copy to forget to fix.
+    through here, so there is no second copy to forget to fix. Because it
+    resolves symlinks first, a link inside the project that points out of it
+    escapes exactly like `../` does.
     """
     if not rel or rel.startswith("/"):
         raise ValueError("a path must be relative to the project root")
@@ -132,3 +192,241 @@ def read(repo: Path, rel: str) -> dict:
         "content": data.decode("utf-8", errors="replace"),
         "bytes": len(data),
     }
+
+
+# -- what a name may be -------------------------------------------------------
+
+
+def check_name(name: str) -> str:
+    """One segment of a path, as somebody typed it into the rail."""
+    if not name:
+        raise InvalidName("a name cannot be empty")
+    if "/" in name or "\\" in name:
+        raise InvalidName(
+            f"{name!r}: a name cannot contain a path separator — "
+            "make the folder first, then create the file inside it"
+        )
+    if name.startswith("."):
+        raise InvalidName(f"{name!r}: a name cannot start with a dot")
+    if not NAME.match(name):
+        raise InvalidName(
+            f"{name!r}: use letters, digits and . _ + - only. "
+            "LaTeX cannot \\input a name with anything else in it."
+        )
+    return name
+
+
+def check_path(rel: str) -> str:
+    """Every segment of a new relative path, by the rule for a single name.
+
+    Rename is also move, so its destination is a path rather than a name; each
+    part of it still has to be a name a person could have typed.
+    """
+    if not rel:
+        raise InvalidName("a path cannot be empty")
+    for part in rel.split("/"):
+        check_name(part)
+    return rel
+
+
+def is_ignored(repo: Path, rel: str) -> bool:
+    """Would `.gitignore` hide this path from the project?
+
+    Asked before writing rather than after: a plot dropped into a repository
+    that ignores `*.pdf` would never reach Overleaf, and the useful answer is
+    to say so, not to leave a file the rail cannot show.
+    """
+    return bool(git.run(repo, "check-ignore", "--", rel, check=False).strip())
+
+
+def _refuse_plumbing(rel: str) -> None:
+    """`.git`, `.worktrees` and `.galley` are not part of the paper.
+
+    The rail never shows them, so nothing in the UI can ask for this — but the
+    routes are reachable by hand, and `git rm -f .git` is not recoverable.
+    """
+    if rel.split("/")[0] in HIDDEN:
+        raise Refused(f"{rel} is Galley's own plumbing, not part of the paper")
+
+
+def _refuse_the_main_file(rel: str, main_tex: str, verb: str) -> None:
+    """The build compiles one document by name; losing it breaks every build."""
+    if rel == main_tex or main_tex.startswith(rel + "/"):
+        raise Refused(
+            f"{main_tex} is the document the build compiles, so it cannot be "
+            f"{verb}. Change main_tex in galley.local.toml first."
+        )
+
+
+def _folder(repo: Path, parent: str) -> Path:
+    """The folder something is about to go into. `""` is the project root."""
+    if not parent:
+        return repo.resolve()
+    _refuse_plumbing(parent)
+    target = resolve(repo, parent)
+    if not target.is_dir():
+        raise Refused(f"there is no folder {parent} — create it first")
+    return target
+
+
+def _joined(parent: str, name: str) -> str:
+    return f"{parent}/{name}" if parent else name
+
+
+def _entry(repo: Path, rel: str) -> Path:
+    """The entry itself, having gone through the containment check.
+
+    `resolve()` follows symlinks. That is what a read wants, and it is what
+    makes the containment check honest — a link out of the project escapes
+    exactly like `../` does. It is not what a write wants: deleting a link
+    should remove the link, not the file at the far end of it.
+    """
+    resolve(repo, rel)
+    return repo / rel
+
+
+def _is_there(path: Path) -> bool:
+    """A dangling symlink is still something in the way."""
+    return path.exists() or path.is_symlink()
+
+
+def _is_tracked(repo: Path, rel: str) -> bool:
+    """Does git know this path? A folder counts if anything under it is tracked."""
+    return bool(git.run(repo, "ls-files", "--", rel, check=False).strip())
+
+
+# -- changing the project -----------------------------------------------------
+
+
+def create(repo: Path, parent: str, name: str, *, folder: bool = False) -> str:
+    """A new empty file, or a new folder, inside `parent`. Returns its path.
+
+    Nothing is staged. An untracked file is already part of the project as far
+    as the rail is concerned, and Galley never adds a path you did not tick.
+    """
+    check_name(name)
+    _folder(repo, parent)
+    rel = _joined(parent, name)
+    target = _entry(repo, rel)
+    if _is_there(target):
+        raise Refused(f"{rel} is already there")
+    if is_ignored(repo, rel):
+        raise Refused(
+            f".gitignore covers {rel}, so it would never reach Overleaf. "
+            "Pick another name, or take the pattern out of .gitignore."
+        )
+    if folder:
+        target.mkdir()
+    else:
+        target.touch()
+    return rel
+
+
+def rename(repo: Path, rel: str, new_rel: str, *, main_tex: str) -> str:
+    """Rename a file or folder — which is also how you move one.
+
+    `git mv` for anything tracked, so the history follows the file instead of
+    showing a delete and an add. It is one operation: either it moves the file
+    and updates the index, or it does neither, so a git failure cannot leave
+    the working tree half-renamed.
+    """
+    _refuse_plumbing(rel)
+    source = _entry(repo, rel)
+    if not _is_there(source):
+        raise FileNotFoundError(rel)
+    _refuse_the_main_file(rel, main_tex, "renamed")
+
+    check_path(new_rel)
+    target = _entry(repo, new_rel)
+    if target == source:
+        return new_rel
+    if _is_there(target):
+        raise Refused(f"{new_rel} is already there")
+    if not target.parent.is_dir():
+        raise Refused(
+            f"there is no folder {new_rel.rpartition('/')[0]} — create it first"
+        )
+    if is_ignored(repo, new_rel):
+        raise Refused(
+            f".gitignore covers {new_rel}, so the file would drop out of the "
+            "project. Pick another name, or take the pattern out of .gitignore."
+        )
+
+    if _is_tracked(repo, rel):
+        git.run(repo, "mv", "--", rel, new_rel)
+    else:
+        source.rename(target)
+    return new_rel
+
+
+def delete(repo: Path, rel: str, *, main_tex: str) -> None:
+    """Remove a file, or an empty folder.
+
+    A folder with anything in it is refused rather than emptied: one click
+    should not be able to take a whole section of the paper with it, and the
+    rail can always delete the contents first.
+    """
+    _refuse_plumbing(rel)
+    target = _entry(repo, rel)
+    if not _is_there(target):
+        raise FileNotFoundError(rel)
+    _refuse_the_main_file(rel, main_tex, "deleted")
+
+    if target.is_dir() and not target.is_symlink():
+        if any(target.iterdir()):
+            raise Refused(f"{rel} is not empty — delete what is in it first")
+        target.rmdir()
+        return
+    if _is_tracked(repo, rel):
+        git.run(repo, "rm", "-f", "-q", "--", rel)
+    else:
+        target.unlink()
+
+
+def upload(
+    repo: Path, parent: str, name: str, data: bytes, *, replace: bool = False
+) -> str:
+    """Take an uploaded file — a figure, usually — into `parent`.
+
+    Replacing is opt-in so that a dropped file cannot quietly overwrite a plot
+    that took an afternoon to make.
+    """
+    check_name(name)
+    _folder(repo, parent)
+    rel = _joined(parent, name)
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise Refused(
+            f"{rel} is {len(data) // (1024 * 1024)} MB; Galley takes up to "
+            f"{MAX_UPLOAD_BYTES // (1024 * 1024)} MB"
+        )
+    target = _entry(repo, rel)
+    if target.is_dir():
+        raise Refused(f"{rel} is a folder")
+    if _is_there(target) and not replace:
+        raise Refused(f"{rel} is already there")
+    if is_ignored(repo, rel):
+        raise Refused(
+            f".gitignore covers {rel}, so it would never reach Overleaf. "
+            "Rename it, or take the pattern out of .gitignore."
+        )
+    _write_whole(target, data)
+    return rel
+
+
+def _write_whole(target: Path, data: bytes) -> None:
+    """A figure arrives complete or not at all.
+
+    An upload can fail halfway — the browser goes away, the disk fills — and
+    writing straight into the project would leave a truncated PDF where a plot
+    used to be. The rename at the end is the only moment the project changes.
+    """
+    handle, temporary = tempfile.mkstemp(dir=target.parent, prefix=".galley-upload-")
+    try:
+        with os.fdopen(handle, "wb") as fh:
+            fh.write(data)
+        # mkstemp is 0600; a file in the paper should read like the rest of it.
+        os.chmod(temporary, 0o644)
+        os.replace(temporary, target)
+    except BaseException:
+        Path(temporary).unlink(missing_ok=True)
+        raise

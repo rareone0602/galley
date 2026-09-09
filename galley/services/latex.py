@@ -13,28 +13,49 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-# latexmk's own summary lines are noise; these are the two things worth seeing.
-_ERROR = re.compile(r"^(?:!.*|.*?:\d+:.*?Error.*|.*?\.tex:\d+:.*)$", re.MULTILINE)
-_UNDEFINED = re.compile(
-    r"(?:LaTeX Warning: (?:Reference|Citation) `([^']+)' on page .*? undefined"
-    r"|Package natbib Warning: Citation `([^']+)' on page .*? undefined)"
-)
+# The compile log records the paths of the files it read exactly the way the
+# synctex file does, so the same rule turns them back into files of yours. One
+# owner for it, or the log and the PDF could disagree about which file a line
+# is in.
+from .synctex import project_path
+
+
+@dataclass(frozen=True)
+class Problem:
+    """One thing the compile says you should go and look at.
+
+    `path` and `line` are filled in only when the log said so plainly or the
+    guess could be checked against the file itself. When they are None the
+    message still stands on its own — being sent to the wrong sentence is worse
+    than being sent nowhere.
+    """
+
+    severity: str  # "error" or "warning"
+    message: str
+    path: str | None = None
+    line: int | None = None
+
+    def as_dict(self) -> dict:
+        return {
+            "severity": self.severity,
+            "message": self.message,
+            "path": self.path,
+            "line": self.line,
+        }
 
 
 @dataclass
 class CompileResult:
     ok: bool
     pdf: Path | None
-    errors: list[str]
-    undefined: list[str]
+    problems: list[Problem]
     log_tail: str
 
     def as_dict(self) -> dict:
         return {
             "ok": self.ok,
             "pdf": str(self.pdf) if self.pdf else None,
-            "errors": self.errors,
-            "undefined": self.undefined,
+            "problems": [p.as_dict() for p in self.problems],
             "log_tail": self.log_tail,
         }
 
@@ -72,28 +93,160 @@ def compile_pdf(repo: Path, main_tex: str, outdir: Path, timeout: float = 600) -
     return CompileResult(
         ok=proc.returncode == 0 and pdf.exists(),
         pdf=pdf if pdf.exists() else None,
-        errors=_collect_errors(log or proc.stdout + "\n" + proc.stderr),
-        undefined=_collect_undefined(log),
+        problems=parse_log(log or proc.stdout + "\n" + proc.stderr, repo),
         log_tail="\n".join(log.splitlines()[-60:]) or proc.stderr[-4000:],
     )
 
 
-def _collect_errors(text: str) -> list[str]:
-    seen: list[str] = []
-    for line in _ERROR.findall(text):
-        line = line.strip()
-        if line and line not in seen and not line.startswith("! ==="):
-            seen.append(line)
-    return seen[:40]
+# -- reading the log ---------------------------------------------------------
+#
+# TeX's log is a transcript, not a report, and only one thing in it is a
+# straight answer: `-file-line-error` puts `file:line:` in front of an error.
+# Everything else has to be worked out from where in the transcript the message
+# appears, so everything else is checked before it is believed.
+
+# `./sections/intro.tex:41: Undefined control sequence.`
+_FILE_LINE = re.compile(r"^\s*(\S*?\.\w{1,5}):(\d+):\s*(.*\S)\s*$")
+# `! Undefined control sequence.` — the same error without the file in front.
+_BANG = re.compile(r"^! (.*\S)\s*$")
+# TeX's own pointer at the offending line, inside an error block.
+_TEX_LINE = re.compile(r"^l\.(\d+)\b")
+_WARNING = re.compile(r"^(?:LaTeX|Package [\w@.-]+|Class [\w@.-]+)(?: Font)? Warning: (.*)$")
+_INPUT_LINE = re.compile(r"\bon input line (\d+)")
+_BOX = re.compile(r"^(?:Over|Under)full \\[hv]box ")
+_BOX_LINES = re.compile(r"\bat lines? (\d+)(?:--\d+)?")
+# A continuation of a package's message, indented under `(packagename)`.
+_CONTINUED = re.compile(r"^\([\w@.-]+\)\s*")
+# What follows a `(` in the transcript when TeX opens a file, rather than when
+# it is simply printing a bracket in a message.
+_LOOKS_LIKE_A_FILE = re.compile(r"/|\.[A-Za-z][\w-]{0,4}$")
+
+# A runaway log can hold thousands of identical box warnings; past this many
+# the list has stopped being a list of things to do.
+MAX_PROBLEMS = 200
 
 
-def _collect_undefined(text: str) -> list[str]:
-    names: list[str] = []
-    for ref, cite in _UNDEFINED.findall(text):
-        name = ref or cite
-        if name and name not in names:
-            names.append(name)
-    return names
+def parse_log(text: str, repo: Path) -> list[Problem]:
+    """Everything in a compile log worth putting in front of a person.
+
+    `repo` is the tree TeX ran in, which for the marked-up review is the
+    scratch copy rather than the paper; either way the paths come back relative
+    to it, which is what the editor opens.
+    """
+    lines = text.splitlines()
+    # Where TeX is reading from. It writes `(name` on opening a file and `)` on
+    # closing it, so the innermost open file is the one a message without its
+    # own filename is talking about.
+    open_files: list[str | None] = []
+    problems: list[Problem] = []
+    lengths: dict[str, int | None] = {}
+
+    def add(severity: str, message: str, path: str | None = None, line: int | None = None) -> None:
+        problem = Problem(severity, " ".join(message.split()), path, line)
+        if problem.message and problem not in problems:
+            problems.append(problem)
+
+    def here(line: int | None) -> tuple[str | None, int | None]:
+        """The innermost open file, if it can carry a line that far.
+
+        The only check available is whether the file is one of yours and is
+        long enough. It is weak, but it is a check: when the bracket counting
+        has drifted the answer is usually a package file or a short one, and
+        that is caught here rather than in the editor.
+        """
+        recorded = next((f for f in reversed(open_files) if f), None)
+        if recorded is None or line is None:
+            return None, None
+        path = project_path(recorded, repo)
+        if path is None:
+            return None, None
+        if path not in lengths:
+            source = repo / path
+            lengths[path] = len(source.read_bytes().splitlines()) if source.is_file() else None
+        total = lengths[path]
+        return (path, line) if total is not None and line <= total else (None, None)
+
+    index = 0
+    while index < len(lines):
+        raw = lines[index]
+        index += 1
+
+        match = _FILE_LINE.match(raw)
+        if match:
+            recorded, number, message = match.group(1), int(match.group(2)), match.group(3)
+            path = project_path(recorded, repo)
+            add("error", message, path, number if path else None)
+            index = _skip_block(lines, index)
+            continue
+
+        match = _BANG.match(raw)
+        if match:
+            block, index = _read_block(lines, index)
+            pointer = next(
+                (int(m.group(1)) for m in map(_TEX_LINE.match, block) if m), None
+            )
+            add("error", match.group(1), *here(pointer))
+            continue
+
+        if _BOX.match(raw):
+            found = _BOX_LINES.search(raw)
+            number = int(found.group(1)) if found else None
+            add("warning", raw, *here(number))
+            # The block under a box warning is the typeset material itself, and
+            # its brackets are prose, not files.
+            index = _skip_block(lines, index)
+            continue
+
+        match = _WARNING.match(raw)
+        if match:
+            block, index = _read_block(lines, index)
+            # A warning runs on over several lines, and where it breaks depends
+            # on `max_print_line`. Joined back together, "on input line 41" is
+            # in one piece wherever TeX chose to wrap it.
+            whole = " ".join([match.group(1)] + [_CONTINUED.sub("", b) for b in block])
+            found = _INPUT_LINE.search(whole)
+            add("warning", whole, *here(int(found.group(1)) if found else None))
+            continue
+
+        _track_open_files(open_files, raw)
+
+    return problems[:MAX_PROBLEMS]
+
+
+def _read_block(lines: list[str], index: int) -> tuple[list[str], int]:
+    """The rest of a message: TeX ends one with an empty line."""
+    block: list[str] = []
+    while index < len(lines) and lines[index].strip():
+        block.append(lines[index])
+        index += 1
+    return block, index
+
+
+def _skip_block(lines: list[str], index: int) -> int:
+    return _read_block(lines, index)[1]
+
+
+def _track_open_files(open_files: list[str | None], line: str) -> None:
+    """Follow TeX's brackets, so a message can be attributed to a file.
+
+    Every `(` is pushed, whether or not it opens a file, because the matching
+    `)` will pop something regardless: counting only the real files would let a
+    `(badness 3942)` in a message close the file it was reported from.
+    """
+    index = 0
+    while index < len(line):
+        character = line[index]
+        if character == "(":
+            end = index + 1
+            while end < len(line) and line[end] not in "()[] \t":
+                end += 1
+            name = line[index + 1 : end]
+            open_files.append(name if name and _LOOKS_LIKE_A_FILE.search(name) else None)
+            index = end
+        else:
+            if character == ")" and open_files:
+                open_files.pop()
+            index += 1
 
 
 def latexdiff_available() -> bool:
@@ -181,8 +334,7 @@ def latexdiff_pdf(
         return CompileResult(
             ok=False,
             pdf=None,
-            errors=["latexdiff is not installed; `tlmgr install latexdiff`"],
-            undefined=[],
+            problems=[Problem("error", "latexdiff is not installed; `tlmgr install latexdiff`")],
             log_tail="",
         )
     changed = [c for c in (changed or []) if c.endswith(".tex")]
@@ -190,8 +342,12 @@ def latexdiff_pdf(
         return CompileResult(
             ok=False,
             pdf=None,
-            errors=["no .tex file changed on this branch, so there is nothing to mark up"],
-            undefined=[],
+            problems=[
+                Problem(
+                    "error",
+                    "no .tex file changed on this branch, so there is nothing to mark up",
+                )
+            ],
             log_tail="",
         )
 
@@ -228,8 +384,7 @@ def latexdiff_pdf(
         return CompileResult(
             ok=False,
             pdf=None,
-            errors=["latexdiff produced no markup for any changed file"],
-            undefined=[],
+            problems=[Problem("error", "latexdiff produced no markup for any changed file")],
             log_tail="",
         )
 
@@ -238,8 +393,13 @@ def latexdiff_pdf(
         return CompileResult(
             ok=False,
             pdf=None,
-            errors=[f"no \\documentclass found from {main_tex}; cannot place the markup preamble"],
-            undefined=[],
+            problems=[
+                Problem(
+                    "error",
+                    f"no \\documentclass found from {main_tex}; "
+                    "cannot place the markup preamble",
+                )
+            ],
             log_tail="",
         )
     source = driver.read_text(errors="replace")
@@ -257,5 +417,5 @@ def latexdiff_pdf(
         target = outdir / "latexdiff.pdf"
         if result.pdf != target:
             shutil.copy2(result.pdf, target)
-        return CompileResult(True, target, result.errors, result.undefined, result.log_tail)
+        return CompileResult(True, target, result.problems, result.log_tail)
     return result

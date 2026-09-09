@@ -71,7 +71,22 @@ highlighting. `Cmd/Ctrl-S` writes the file, and `Ctrl` with `+`, `-` or `0`
 sizes the text (the editor's, not the whole page's). What appears in the file tree is
 git's answer (`git ls-files` plus untracked-but-not-ignored), so build output and
 session worktrees never show up, and the rail is exactly the set of files that
-can reach Overleaf.
+can reach Overleaf. The rail also does what Overleaf's does — new file, new
+folder, rename, delete, drag a figure in — and refuses the things that would
+quietly break the paper, `main.tex` and ignored paths among them.
+
+**Nothing you type is lost by leaving.** Every file you have open keeps its own
+buffer, cursor, scroll position and undo history, so switching files or tabs is
+a move rather than a discard, and the browser warns before you close the window
+on unsaved work. If something else writes a file while you have unsaved changes
+in it — a merge, usually — your text stays and the bar offers to reload,
+which is itself undoable.
+
+**`\cite{`, `\ref{` and your own macros complete.** Read from the project's
+own `.bib` and `.tex` — and from `.sty` and `.cls`, which is where a paper
+usually keeps the names it invented. Each option carries what you would
+otherwise open another file to check: the author and year beside a citation, the
+section or caption beside a label, the argument count beside a macro.
 
 **Select a passage and Claude can rewrite just that passage.** A bubble appears
 on the selection, the way Overleaf's offers a comment. Ask for what you want;
@@ -115,6 +130,13 @@ that moved marked inside them. The middle column is the merge control — one
 button per change, `→` to take Claude's wording, `✓` once taken. Whichever side
 loses is dimmed, so the solid column is always the file **Save** would write.
 
+It is a review tool rather than a long scroll: a keyboard for stepping and
+deciding (with the keys shown in the pane, not buried in a docstring), a header
+that reads `Change 3 of 17 · 5 taken · 2 rewritten`, ticks down the side showing
+where the changes are and which are decided, take-all and keep-all per file with
+an undo stack, and a **Save** that first says which files it would write and
+what size each becomes.
+
 **There are three answers per change, not two.** Double-click either side, or
 press the pencil, and the row becomes a text box seeded from the side you were
 reading; what you type wins over both. Claude's draft is a suggestion, and the
@@ -129,11 +151,21 @@ Rendered by PDF.js, the renderer Overleaf uses, rather than handed to the
 browser's viewer — because that buys one gesture: **double-click a word and the
 editor goes to the line that wrote it.**
 
-That works by reading the `.synctex.gz` TeX writes beside the PDF. TeX Live's
+It goes the other way too: `Ctrl/Cmd+Alt+J`, or **Show in PDF**, takes the line
+you are writing and marks where it printed. A line that printed nothing falls
+forward to the next one that did, and says so.
+
+Both work by reading the `.synctex.gz` TeX writes beside the PDF. TeX Live's
 `synctex` command does the same job, but it is a separate package and is not
 installed everywhere a paper compiles, so Galley parses the file itself. If a
 double-click says there is no SyncTeX data, the PDF was built before this
 existed — compile it again.
+
+When a build fails, the errors are listed rather than dumped, each one clickable
+through to the line that broke. LaTeX's log names a file for almost nothing, so
+the file is inferred from the transcript and then checked against the project;
+where it cannot be checked the message is kept and the location dropped, because
+a wrong line number is worse than none.
 
 ## Overleaf
 

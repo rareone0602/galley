@@ -1,30 +1,48 @@
 import { useEffect, useRef, useState } from 'react'
-import { api, type SourceLocation, type Work } from '../api'
-import PdfViewer from './PdfViewer'
+import { api, type Problem, type SourceLocation, type Work } from '../api'
+import PdfViewer, { type Mark } from './PdfViewer'
 
 type Mode = 'accepted' | 'branch' | 'review'
+
+/** The build on screen, as against the one you last asked for. They come apart
+ *  while latexmk runs, and stay apart if it fails: the paper you were reading
+ *  is better company than an empty pane. */
+type Shown = { mode: Mode; stamp: number }
+
+/** Which session's PDF a shown build is, if any. `accepted` is the paper
+ *  itself, so it belongs to no session even when one is open. */
+const shownSession = (shown: Shown, sessionId: string | null) =>
+  shown.mode === 'accepted' ? null : sessionId
 
 /**
  * The right-hand pane: the paper as it will look in print, always on screen.
  *
  * Both builds run on the server and are polled rather than awaited — latexmk
  * takes tens of seconds on a real paper and latexdiff takes minutes, which is
- * far too long to hold a request open.
+ * far too long to hold a request open. The paper stays up throughout: a build
+ * you cannot see the result of is a build you have stopped reading during.
  */
 export default function PdfPane({
   sessionId,
   latexdiffAvailable,
   onCollapse,
   onJump,
+  showInPdf,
 }: {
   sessionId: string | null
   latexdiffAvailable: boolean
   onCollapse: () => void
   onJump: (where: SourceLocation) => void
+  /** A source line to go to, from the editor. The nonce is the gesture: the
+   *  same line asked for twice should scroll and flash twice. */
+  showInPdf?: { path: string; line: number; nonce: number } | null
 }) {
   const [work, setWork] = useState<Work | null>(null)
   const [mode, setMode] = useState<Mode>('accepted')
-  const [stamp, setStamp] = useState(0)
+  const [shown, setShown] = useState<Shown | null>(null)
+  const [listing, setListing] = useState(false)
+  const [mark, setMark] = useState<Mark | null>(null)
+  const [note, setNote] = useState<string | null>(null)
   const poll = useRef<number | null>(null)
 
   function stopPolling() {
@@ -45,17 +63,25 @@ export default function PdfPane({
         ? api.reviewStatus(sessionId)
         : api.compileStatus(which === 'branch' && sessionId ? sessionId : undefined)
 
+    const settle = (result: Work) => {
+      setWork(result)
+      // Only a build that produced a PDF replaces the one on screen. A failed
+      // recompile leaves the last good paper where it was, which is what the
+      // errors beside it are about.
+      if (result.state === 'done' && result.ok) setShown({ mode: which, stamp: Date.now() })
+    }
+
     try {
       const first = await kick()
       setWork(first)
-      if (first.state !== 'running') return setStamp(Date.now())
+      if (first.state !== 'running') return settle(first)
       poll.current = window.setInterval(async () => {
         try {
           const next = await check()
           setWork(next)
           if (next.state !== 'running') {
             stopPolling()
-            setStamp(Date.now())
+            settle(next)
           }
         } catch (e) {
           stopPolling()
@@ -67,19 +93,63 @@ export default function PdfPane({
     }
   }
 
+  const problems: Problem[] = work?.state === 'done' ? (work.problems ?? []) : []
+  const errors = problems.filter((p) => p.severity === 'error').length
+  const warnings = problems.length - errors
+
+  // Open the list when something actually failed, and leave warnings folded
+  // away: on a paper this size they are a dozen underfull boxes you have
+  // already decided to live with.
+  useEffect(() => {
+    if (work?.state === 'done') setListing(errors > 0)
+  }, [work, errors])
+
+  // -- the editor asking the paper to go somewhere ----------------------
+  useEffect(() => {
+    if (!showInPdf) return
+    if (!shown) {
+      setNote('Compile the paper and it will follow the line you are on.')
+      return
+    }
+    let stale = false
+    setNote(null)
+    api
+      .synctexView(
+        showInPdf.path,
+        showInPdf.line,
+        shown.mode === 'accepted' ? undefined : (sessionId ?? undefined),
+        shown.mode === 'review',
+      )
+      .then((view) => {
+        if (stale) return
+        setMark({ areas: view.areas, nonce: showInPdf.nonce })
+        if (view.fell_forward)
+          setNote(
+            `Line ${view.asked_line} prints nothing, so this is line ${view.line}, the next one that does.`,
+          )
+      })
+      .catch((e) => !stale && setNote(String(e)))
+    return () => {
+      stale = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showInPdf?.nonce])
+
   const busy = work?.state === 'running'
-  const src =
-    mode === 'review' && sessionId
-      ? `/api/pdf?session_id=${sessionId}&review=true&t=${stamp}`
-      : mode === 'branch' && sessionId
-        ? `/api/pdf?session_id=${sessionId}&t=${stamp}`
-        : `/api/pdf?t=${stamp}`
 
   return (
     <section className="pane-column pdf-pane">
       <header className="pdf-bar">
         <button className="tiny" onClick={onCollapse} title="Hide the PDF pane">
           ‹
+        </button>
+        <button
+          className="primary tiny"
+          onClick={() => run(mode)}
+          disabled={busy}
+          title="Build this version of the paper again"
+        >
+          {busy ? 'Compiling…' : 'Recompile'}
         </button>
         <div className="seg">
           <button
@@ -135,36 +205,76 @@ export default function PdfPane({
             <pre style={{ marginTop: 6 }}>{work.error}</pre>
           </div>
         )}
-        {work?.state === 'done' && !work.ok && (
+        {work?.state === 'done' && !work.ok && errors === 0 && (
           <div className="notice bad">
-            <strong>Compile failed.</strong>
-            <pre style={{ marginTop: 6 }}>{(work.errors ?? []).join('\n')}</pre>
+            <strong>Compile failed</strong>, and the log says nothing this reader
+            could pin down. The end of it is in the terminal Galley is running in.
           </div>
         )}
-        {work?.undefined?.length ? (
-          <div className="notice warn">
-            Undefined references: <span className="mono">{work.undefined.join(', ')}</span>
-          </div>
-        ) : null}
 
-        {work?.state === 'done' && work.ok ? (
+        {problems.length > 0 && (
+          <div className={`pdf-problems${errors ? ' failed' : ''}`}>
+            <button className="pdf-problems-head" onClick={() => setListing((open) => !open)}>
+              <span className="caret">{listing ? '▾' : '▸'}</span>
+              <span>
+                {errors > 0 && <strong>{errors === 1 ? '1 error' : `${errors} errors`}</strong>}
+                {errors > 0 && warnings > 0 && ', '}
+                {warnings > 0 && (warnings === 1 ? '1 warning' : `${warnings} warnings`)}
+              </span>
+            </button>
+            {listing && (
+              <ul className="pdf-problem-list">
+                {problems.map((problem, i) => (
+                  <li key={i} className={problem.severity}>
+                    <button
+                      className="pdf-problem"
+                      disabled={!problem.path}
+                      title={problem.path ? `Open ${problem.path}` : 'The log did not say where'}
+                      onClick={() =>
+                        problem.path &&
+                        onJump({
+                          path: problem.path,
+                          line: problem.line ?? 1,
+                          in_project: true,
+                        })
+                      }
+                    >
+                      {problem.path && (
+                        <span className="where mono">
+                          {problem.path.split('/').pop()}
+                          {problem.line ? `:${problem.line}` : ''}
+                        </span>
+                      )}
+                      <span className="what">{problem.message}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+
+        {note && <div className="notice info">{note}</div>}
+
+        {shown ? (
           <PdfViewer
-            src={src}
-            sessionId={mode === 'accepted' ? null : sessionId}
-            review={mode === 'review'}
+            src={api.pdfUrl(shownSession(shown, sessionId), shown.mode === 'review', shown.stamp)}
+            sessionId={shownSession(shown, sessionId)}
+            review={shown.mode === 'review'}
             onJump={onJump}
+            mark={mark}
           />
+        ) : busy ? (
+          <div className="empty small">Building the paper…</div>
         ) : (
-          !work && (
-            <div className="empty">
-              Compile to see the paper.
-              <div style={{ marginTop: 10 }}>
-                <button className="primary" onClick={() => run('accepted')}>
-                  Compile
-                </button>
-              </div>
+          <div className="empty">
+            Compile to see the paper.
+            <div style={{ marginTop: 10 }}>
+              <button className="primary" onClick={() => run('accepted')}>
+                Compile
+              </button>
             </div>
-          )
+          </div>
         )}
       </div>
     </section>
