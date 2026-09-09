@@ -1,0 +1,440 @@
+% !TEX root = ../../../../main.tex
+% SECTION 3 --- Method.  Budget: 2.5 pages.
+%
+% BINDING RULES (rationale and history are in git):
+%  1. Never read a fitted E as an entropy.  The NL floor moves 1.69 -> 1.82 on a
+%     refit and the code floor 0.22 -> ~0 on a change of form, on the same runs.
+%     Lean on the ORDERING of floors across channels, never on a value.
+%  2. luo2025codescalingdatahungry is the code-vs-NL fit; yang2026codescaling is
+%     WITHIN-code only and must never be cited for code-vs-English.
+%  3. The exponent half of sec:method:scaling is a TRANSFER from nonparametric
+%     estimation, not an imported theorem.  Keep the seam paragraph: the floor
+%     claim is exact, the exponent claim is registered and separately
+%     falsifiable.  An edit that blurs the two breaks the paper.
+%  4. Do not restore the Shannon-band cap on KL(NL||pi_NL).  Falsified three
+%     ways (reviews/2026-08-11-kl-nl-estimation-memo.md); every failure
+%     flattered the paper.  It gets one footnote.
+
+\section{Method}
+\label{sec:method}
+
+\subsection{One theorem, three renderings}
+\label{sec:method:object}
+
+In a dependently typed proof assistant a theorem is a closed term whose type is
+the statement, so proving \(t\) and producing a term of type \(t\) are the same
+act \citep{demoura2021lean4, barendregt2001proofassistants}.
+We train on the serialisation \(\sigma\) of that term.
+\(\sigma\) is \emph{injective}, so a distribution over strings is a distribution
+over terms with no realisation freedom in between, and every quantity we compute
+on the string channel is a quantity about terms.
+Acceptance is decided rather than scored:
+the kernel either accepts a candidate as a proof of \(t\) or does not, so
+membership in the accept set \(A(t)\) is a fact about the candidate rather than
+a judgement about it.
+The soundness record --- one kernel-ratified verifier with a private certificate
+constructor, twenty-two adversarial probes, and a retained upstream kernel
+defect kept as a positive control --- is \cref{app:soundness}.
+
+The same theorem admits several renderings, and this paper is about the
+difference between them.
+We use three:
+the \textbf{language} rendering, an English statement and worked solution;
+the \textbf{surface} rendering, the proof-assistant source a human types;
+and the \textbf{term} rendering, the serialised kernel term the checker
+consumes.
+Autoformalisation is the map from the first to the last.
+
+\subsection{Signal, noise, and where a prover's loss goes}
+\label{sec:method:identity}
+
+Fix a theorem set.
+Each row carries a statement and a proof, and only the proof is ever scored.
+Write \(Z\) for what the prover is handed --- the English statement together
+with the formal type \(t\) of \cref{sec:method:object}, given to every arm alike
+(R3, \cref{sec:method:protocol}) --- and NL and FL for the corpora of English
+worked solutions and of the serialised kernel terms that certify them.
+\(Z\) is the question;
+the pair \((\mathrm{NL}, \mathrm{FL})\) is the answer written twice.
+All quantities are summed nats per theorem, conditioned on \(Z\), and computed
+on held-out rows, because a model scored on its training rows can memorise below
+the entropy and void what follows silently (R7, \cref{sec:method:protocol}).
+The conditioning on \(Z\) is suppressed in the displays below and restored in
+\cref{eq:fibre}, where it does work.
+We never work per token:
+per-token quantities are properties of the tokenizer.
+
+On each channel the held-out cross-entropy is corpus entropy plus model misfit
+\citep{cover2006elements}:
+\begin{equation}
+\label{eq:cehkl}
+  \CE_{\mathrm{NL}} = H(\mathrm{NL}) + \KL{\mathrm{NL}}{\pi_{\mathrm{NL}}},
+  \qquad
+  \CE_{\mathrm{FL}} = H(\mathrm{FL}) + \KL{\mathrm{FL}}{\pi_{\mathrm{FL}}}.
+\end{equation}
+The chain rule splits the English entropy against the formal side,
+\(H(\mathrm{NL}) = I(\mathrm{NL};\mathrm{FL}) + H(\mathrm{NL}\mid\mathrm{FL})\),
+with no premise consumed;
+substituting into \cref{eq:cehkl} gives the decomposition the paper is built on:
+\begin{equation}
+\label{eq:identity}
+  \CE_{\mathrm{NL}}
+  \;=\; \underbrace{I(\mathrm{NL};\mathrm{FL})}_{\text{signal}}
+  \;+\; \underbrace{H(\mathrm{NL}\mid\mathrm{FL})}_{\text{noise}}
+  \;+\; \underbrace{\KL{\mathrm{NL}}{\pi_{\mathrm{NL}}}}_{\text{misfit}}.
+\end{equation}
+\Cref{fig:identity} is the whole accounting on one worked instance;
+\cref{app:info} defines the quantities for readers who want them.
+
+% FIGURE.  The picture lives in figures/identity_idiagram/body.tex and is
+% shared, byte for byte, with the internal deck
+% (publications/slides/2026-08-17/sections/figure.tex).  Design rationale and
+% measured geometry travel in that component's README.
+% CONTRACT for any other host: figures/identity_idiagram/requires.tex, plus
+% \CE from flmnotation (which flmcore and flmbeamer both pull in).  The
+% contract used to say \input{macros}; macros.tex was retired into
+% flmnotation.sty on 2026-08-16.
+\begin{figure}[t]
+\centering
+\input{figures/identity_idiagram/body}
+\caption{The decomposition, on one worked instance.
+Left: the same theorem twice, as English prose and as the tree of \Expr{}
+constructors the kernel checks (\cref{app:expr});
+the serialisation $\sigma$ reads the tree top-down and is injective, so a
+distribution over streams is a distribution over terms.
+Each bar is one channel's held-out cross-entropy as a length in summed nats per
+theorem, and the bars are aligned \emph{on} their shared cell, because that cell
+is the same quantity in both.
+Each bar read left to right is noise, then signal, then misfit --- the top bar
+is \cref{eq:identity}, whose terms we write signal-first;
+the nested braces are \cref{eq:cehkl}; the shaded column read against
+the bottom bar is \cref{eq:mathcap}.
+\emph{Widths are schematic:} at the de-risk orders the shaded column would be
+under one per cent of the top bar.}
+\label{fig:identity}
+\end{figure}
+
+\paragraph{One definition, stated as one.}
+We \emph{define} the mathematical content of a write-up as the information it
+shares with the term that certifies it, \(I(\mathrm{NL};\mathrm{FL})\), and the
+\emph{noise} of a rendering as what the certifying term leaves free,
+\(H(\cdot\mid\mathrm{FL})\).
+The motivation is propositions-as-types --- the kernel term \emph{is} a complete
+derivation \citep{curry1934functionality, Howard1980} --- together with the
+observation that for a prover the term is the deliverable.
+Curry--Howard motivates the definition; nothing below rests on it as a premise.
+The concession we flag rather than smuggle:
+a kernel term may not capture everything a reader would call mathematics ---
+motivation, intuition, choice of exposition --- so our ``noise'' contains, by
+construction, whatever of that the term does not determine.
+That is the honest attack on this framing, and the definition is our answer.
+
+\paragraph{The headline inequality.}
+Mutual information is at most either marginal entropy, and entropy is at most
+cross-entropy, so
+\begin{equation}
+\label{eq:mathcap}
+  I(\mathrm{NL};\mathrm{FL}) \;\le\; H(\mathrm{FL}) \;\le\; \CE_{\mathrm{FL}},
+\end{equation}
+and \(\CE_{\mathrm{FL}}\) is a number our harness reports per row:
+a median of \(3.10\) nats per theorem in the de-risk pilot
+(\cref{sec:experiments:pilot}), against an English objective of order
+\(10^{2}\)--\(10^{4}\) nats \citep{shannon1951prediction,
+deletang2024compression}.
+At most \(\CE_{\mathrm{FL}}\) nats of a prover's loss can be signal;
+everything above that line is noise or misfit.
+Three properties do the work.
+The cap assumes no floor on \(H(\mathrm{NL})\), so nothing is imported from the
+entropy-of-English literature.%
+\footnote{An earlier draft capped \(\KL{\mathrm{NL}}{\pi_{\mathrm{NL}}}\) using
+Shannon's human-prediction band.
+Withdrawn: a cap on the misfit is exactly an assumed floor on the entropy of
+held-out mathematical prose, Shannon's \(0.6\) bits per character bounds
+\(F_{100}\) rather than the entropy rate and presumes an ideal ranker
+\citep{shannon1951prediction, coverking1978gambling}, and a measured \(0.500\)
+bits per character on mathematical prose \citep{huang2024compression} already
+sits below the band.
+Every failure flattered the paper.}
+The cap is ungameable in nats, since \cref{eq:mathcap} contains no
+\(\pi_{\mathrm{NL}}\);
+the \emph{fraction} \(\CE_{\mathrm{FL}}/\CE_{\mathrm{NL}}\) is gameable upward
+by a bad English scorer, so we lead with nats and report the fraction across a
+ladder of scorers.
+And over-counting is safe:
+anything inflating \(I\) or \(H(\mathrm{FL})\) --- shared surface correlates,
+both sides running longer on harder problems, proof multiplicity --- loosens the
+cap rather than invalidating it.
+
+\paragraph{Why the operation is denoising.}
+Under this definition the three renderings sit in a strict order.
+The term channel leaves nothing free, \(H(\mathrm{FL}\mid\mathrm{FL}) = 0\);
+the surface channel leaves some, because many scripts elaborate to one term;
+the language channel leaves whatever English leaves free once the term is fixed,
+which is the wording, the ordering, and the decision about which steps are worth
+spelling out.
+Autoformalisation walks that order end to end.
+It is not a change of notation:
+it removes the component of the description that carries no information about
+the certifying term.
+That operation is denoising, and the paper's question is how much of the
+description it removes.
+
+\paragraph{The one noise term we can enumerate.}
+Read against the coarser object --- the theorem rather than a particular term ---
+the term channel is not noiseless either:
+several accepted terms realise one goal, and which appears is free.
+This residual is the only noise term in the paper that is \emph{enumerable},
+because \(A(t)\) is decidable, so we can sample the accept set and price the
+freedom directly (\cref{sec:experiments:cap}).
+No language channel permits that.
+It also enters every bound above with a known sign, inflating
+\(H(\mathrm{FL})\) and loosening \cref{eq:mathcap}, so the accounting never
+needs it measured.
+
+\paragraph{The absolute reading.}
+The same chain rule bounds the noise from below,
+\(H(\mathrm{NL}\mid\mathrm{FL}) = H(\mathrm{NL}) - I(\mathrm{NL};\mathrm{FL})
+\ge H(\mathrm{NL}) - \CE_{\mathrm{FL}}\),
+with no model on either side, since cross-entropy minus its own misfit is
+identically \(H(\mathrm{NL})\).
+Only the absolute statement --- that the noise is
+\(\gtrsim \CE_{\mathrm{NL}} - \CE_{\mathrm{FL}}\) --- substitutes the measured
+\(\CE_{\mathrm{NL}}\) for \(H(\mathrm{NL})\) and so needs the English misfit
+small, and we defend that by measurement rather than citation:
+cross-entropy \emph{differences} identify KL differences exactly, so a ladder of
+scorers certifies \(\KL{\mathrm{NL}}{\pi_{\mathrm{weak}}} \ge
+\CE(\pi_{\mathrm{weak}}) - \CE(\pi_{\mathrm{best}})\) with no assumption.
+The residual bias has the friendly sign:
+\(\CE_{\mathrm{NL}} \ge H(\mathrm{NL})\) always, so every improvement in the
+English scorer makes the claim harder, not easier.
+
+\subsection{A theory of the loss: renderings as fibres}
+\label{sec:method:scaling}
+
+The accounting above prices one corpus with one model.
+A scaling law asks what \emph{any} model must pay.
+This subsection is a mechanism that produces both, and it is what makes the two
+instruments measurements of one thing rather than two adjacent results.
+Write \(L_c(N,D)\) for the held-out loss of a model with \(N\) total
+parameters trained on \(D\) tokens of channel \(c\), and fit the usual form \phy{Empirically this loss works for per-theorem and per nats. Here, I mean per-theorem.}
+\citep{kaplan2020scaling, hoffmann2022chinchilla}
+\begin{equation}
+\label{eq:chinchilla}
+  L_c(N,D) \;=\; E_c \;+\; A_c N^{-\alpha_c} \;+\; B_c D^{-\beta_c}.
+\end{equation}
+
+\paragraph{The construction.}
+Write \(X_c\) for the string channel \(c\) presents, so \(X_{\mathrm{NL}}\) and
+\(X_{\mathrm{FL}}\) are the two corpora of \cref{sec:method:identity} and
+\(X_{\mathrm{surface}}\) is the third rung.
+A rendering maps mathematical content to \(X_c\) and is not injective:
+the content leaves choices open, and something has to make them.
+Write \(\nu_c\) for the channel's \emph{realisation variable} --- everything the
+content does not fix --- and read the certifying term \(X_{\mathrm{FL}}\) as the
+content itself, which \(\sigma\) licenses, so that
+\begin{equation}
+\label{eq:fibre}
+  X_c \;=\; r_c(X_{\mathrm{FL}}, \nu_c),
+  \qquad
+  H(X_c \mid Z) \;=\; \underbrace{I(X_c; X_{\mathrm{FL}} \mid Z)}_{\text{base}}
+  \;+\; \underbrace{H(\nu_c \mid X_{\mathrm{FL}}, Z)}_{\text{fibre}}.
+\end{equation}
+The rendering map \(r_c\) is deterministic given content and realisation
+variable, which is what turns the chain rule's residual into an entropy of
+\(\nu_c\).
+This is \cref{eq:identity} again, read structurally:
+the signal is the base of the rendering and the noise is its fibre.
+The three channels are three points on one tower, ordered by fibre.
+The middle rung is not an assumption but a fact about the substrate:
+elaboration is a genuine many-to-one function from surface source to kernel
+term, so \(H(\nu_{\mathrm{surface}}\mid X_{\mathrm{FL}}) > 0\) is the entropy of
+elaboration choices, and it is zero only for the term itself.
+The English rung is the same construction with a fibre that is both far larger
+and, unlike elaboration, not the fibre of a function --- a prose proof need not
+determine a term at all.
+Autoformalisation is the walk down this tower, and each step deletes a fibre.
+
+\begin{proposition}[The floor is base plus fibre]
+\label{prop:floor}
+For every model, every \(N\) and every \(D\),
+\(L_c(N,D) = H(X_c\mid Z) + \KL{X_c}{\pi} \ge H(X_c \mid Z)\).
+The estimand of \(E_c\) is that limit, so by \cref{eq:fibre}
+\(E_c\) is the channel's base plus its fibre entropy, and nothing else.
+\end{proposition}
+
+On the term channel the fibre is empty, so \(E_{\mathrm{FL}}\) is \emph{all}
+base.
+On the language channel \cref{eq:mathcap} caps the base at
+\(\CE_{\mathrm{FL}}\), a few nats per theorem, so a floor of hundreds of nats
+per theorem is essentially all fibre.
+
+\paragraph{The second property is dimension, and it sets the exponent.}
+Fibre entropy is how much is free.
+Fibre \emph{dimension} is how much structure that freedom has --- how many
+coordinates a model must resolve before it can predict form well --- and it is a
+different quantity doing a different job.
+In the resolution-limited regime \citep{bahri2024explaining} a model with \(N\)
+parameters resolves a target manifold of intrinsic dimension \(d\) at spacing
+\(N^{-1/d}\), and a smooth target approximated at that spacing costs squared
+error \(N^{-4/d}\), so the model exponent goes as \(\alpha \approx 4/d\) ---
+verified by measuring \(d\) and \(\alpha\) independently
+\citep{sharma2022manifold}, and derived in \cref{app:noise}.
+A rendering's manifold is locally a product of a content factor and a form
+factor, and the intrinsic dimension of a product is the sum, so
+\(d_c = d_{\mathrm{math}} + d_{\mathrm{form}}(c)\) and
+\begin{equation}
+\label{eq:alphafibre}
+  \frac{1}{\alpha_c}
+  \;\approx\; \frac{d_{\mathrm{math}} + d_{\mathrm{form}}(c)}{\kappa},
+  \qquad \kappa \text{ channel-independent } (\approx 4).
+\end{equation}
+\emph{Reciprocal model exponents are affine in the fibre dimension.}
+That is a sharper claim than ``noise flattens the exponent'':
+it says the three channels' reciprocal exponents should be ordered \emph{and}
+that their gaps measure the dimensions each rendering adds, with the term
+channel as the zero-fibre reference.
+
+The discrete-skill route gives the same conclusion by a different mechanism.
+If learning decomposes into quanta acquired in decreasing order of use
+frequency, a power law in use frequency produces the power law in loss
+\citep{michaud2023quantization}.
+A rendering's quanta are the content quanta together with the form quanta ---
+that this register says ``hence'', that this house style displays its
+equations --- and the ranked spectrum of a union is governed at large rank by
+whichever population decays more slowly, so
+\(\alpha_c \approx \min(\alpha_{\mathrm{content}}, \alpha_{\mathrm{form}}(c))\).
+Deleting the form population can only raise the exponent.
+The classical rates say the same thing in the limit:
+a smooth target costs \(n^{-2s/(2s+d)}\) from noisy observations against
+\(n^{-2s/d}\) from exact ones \citep{stone1982optimalrates,
+tsybakov2009nonparametric}, and under label noise the fast rate survives only to
+a crossover \citep{cui2021noisycrossover}.
+Three routes, one conclusion, and the same \(d\) in two of them.
+
+\paragraph{Two properties, two dials, and they separate.}
+A fibre can be high-entropy and low-dimension:
+an independent coin flip between two synonyms raises \(E\) and leaves \(\alpha\)
+alone.
+It can equally be low-entropy and high-dimension:
+a house style is nearly deterministic given enough context, so it costs little
+entropy, but a model must resolve it, and that costs exponent.
+So the floor and the exponent are consequences of \emph{different properties of
+the same fibre}, and an experiment can move them independently --- generator
+temperature adds fibre entropy, generator style diversity adds fibre dimension.
+\Cref{sec:experiments:law} registers that as the theory's discriminating test,
+because no account on which noise is a single scalar can pass it.
+
+\paragraph{What the theory already has to explain.}
+Fitted head to head under one functional form, code carries both a lower floor
+than natural language (\(0.22\) against \(\num{scaling_fit/nl_ref/E}\) nats per token) \emph{and} a
+steeper model exponent (\(0.485\) against \(\num{scaling_fit/nl_ref/alpha}\))
+\citep{luo2025codescalingdatahungry, hoffmann2022chinchilla}.
+Two observations, one mechanism:
+a smaller fibre has less entropy and fewer dimensions at once.
+Read through \cref{eq:alphafibre} the implied dimensions are \(8.2\) and
+\(11.8\), so English carries roughly four content-irrelevant dimensions that
+code does not --- a number of the right order for this literature, and one our
+own three channels re-measure under matched content.
+The same comparison also \emph{restricts} the theory, which is why we state it
+here rather than in a limitations paragraph.
+Luo's data exponents barely move (\(0.298\) against \(\num{scaling_fit/nl_ref/beta}\)) while the model
+exponents move a great deal.
+\Cref{eq:alphafibre} is a statement about \(\alpha\), the exponent
+\citet{sharma2022manifold} derive;
+a version of this theory predicting that \(\beta\) moves in step is already
+refuted by those numbers, and we therefore register the \(\alpha\) prediction
+and leave \(\beta\) open.
+Within code, stricter languages carry lower floors across a thousand runs
+\citep{yang2026codescaling};
+the theory predicts they carry steeper model exponents too, which their released
+per-language fits can settle without any new training, and we pre-register that
+check.
+
+\paragraph{Why the published fits cannot carry the mechanism.}
+Both orderings run in the predicted direction, and neither is evidence for the
+fibre account, because in both designs the corpora differ in \emph{content} as
+well as in fibre.
+There is no common object that a Python corpus and an English corpus are two
+renderings of, so nothing separates ``smaller fibre'' from ``easier, more
+repetitive, more templated'' --- \(d_{\mathrm{math}}\) is not held fixed.
+Our design fixes it by construction:
+the three channels carry the \emph{same theorems}, joined row by row, so
+\(d_{\mathrm{math}}\) and the base term are common to all three arms and every
+difference between fitted floors and exponents is a difference in fibre.
+The published ordering is an association;
+this is the controlled contrast, and it is why the experiment is worth running
+even though its direction is already in the literature.
+
+\paragraph{An apparent contradiction, resolved.}
+The same comparison reports code as \emph{more} data-hungry at the
+compute-optimal allocation, which reads as the opposite of ``smaller fibre, less
+data''.
+It is not.
+Minimising \cref{eq:chinchilla} at fixed compute \(C \propto ND\) gives
+\(D_{\mathrm{opt}}/N_{\mathrm{opt}} \propto
+C^{(\alpha-\beta)/(\alpha+\beta)}\) (\cref{app:noise}), an exponent of
+\(0.10\) for the natural-language fit and \(0.24\) for the code fit.
+Code's optimal data-to-parameter ratio grows faster with compute \emph{because}
+its model exponent is steeper --- the very fact \cref{eq:alphafibre} predicts.
+The reported data-hunger is a budget-splitting statement and is downstream of
+the theory rather than in tension with it.
+
+\paragraph{Two disciplines, both binding.}
+\emph{Units.}
+We fit per token, because that is what \cref{eq:chinchilla} is for, then convert
+each floor by that channel's tokens-per-theorem before comparing.
+A floor in nats per token is a statement about a tokenizer as much as about a
+corpus, and a channel that compresses its own vocabulary wins by construction.
+If the predicted ordering exists only per token, we have measured our
+tokenizers, and \cref{sec:experiments:law} treats that as a kill condition
+rather than a caveat.
+\emph{Estimator, not estimand.}
+\Cref{prop:floor} concerns the limit of the achievable loss;
+the fitted \(E_c\) is a known unstable estimator of it, moving
+\(\num{scaling_fit/nl_ref/E} \to 1.82\) under a refit \citep{besiroglu2024chinchilla} and
+\(0.22 \to \approx 0\) under a change of functional form on the same runs
+\citep{luo2025codescalingdatahungry}, and the work that introduced the reading
+warns against identifying the irreducible loss with an entropy
+\citep{henighan2020scaling}.
+We therefore fit all three channels under one form on one grid and read
+\emph{orderings and gaps}, never a value.
+\subsection{The matched protocol}
+\label{sec:method:protocol}
+
+The comparisons are only worth making if they are constructed to be fair, and
+the fairness is a protocol rather than an argument.
+We pre-register it in the form fixed before any training compute was spent.
+\textbf{R1, one base model or none}:
+the cap arms start from one recorded snapshot of the same pretrained base model;
+the scaling arms are from scratch on every rung, because a pretrained body
+imports an unknown quantity of the very data the fit is about.
+\textbf{R2, one theorem set}:
+same declarations, joined by problem identity, with the join rate and the full
+cascade published.
+\textbf{R3, identical conditioning}:
+every arm scored as conditional generation given the \emph{byte-identical}
+English statement, and no arm given the formal statement unless all are --- the
+condition the predecessor's headline figure failed, which alone can account for
+a large entropy gap.
+\textbf{R4, one scorer, one unit}:
+summed nats per theorem from one routine; per-token loss is a fitting device and
+a diagnostic, never a cross-channel comparison.
+\textbf{R5, comparable convergence, published}:
+each arm trained to its own early-stopping criterion on a held-out slice of its
+own channel, with all learning curves printed.
+\textbf{R6, tokenizer replication}:
+the term arm scored twice, under its native vocabulary and under the base
+model's, both numbers printed;
+we do not claim per-theorem nats are exactly tokenizer-invariant, only that the
+comparison does not turn on it.
+\textbf{R7, decontamination and provenance, declared first}:
+the evaluation slice screened against the standard suites and near-duplicate
+scanned against the public sources of its English side;
+every row labelled human-authored or machine-generated, strata never pooled
+silently;
+and any fine-tuned scorer fine-tuned on train and scored on held-out rows only,
+because memorisation drives a measured \(\CE\) below \(H\) and voids
+\cref{eq:cehkl} silently.
+One further admissibility rule --- that an accept may cite only constants already
+elaborated when the goal's own declaration was --- is stated with its
+measurements in \cref{app:admissibility}.

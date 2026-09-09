@@ -3,8 +3,18 @@
 A local workbench for writing a paper with Claude, where experiments run on a
 cluster and every word that lands in the manuscript is one you accepted by hand.
 
-**Status:** design stage. No code yet — see [`docs/architecture.html`](docs/architecture.html)
-for the full design document, or the [rendered version](https://claude.ai/code/artifact/8dfdd950-7dce-4647-b9de-2393e09e20b6).
+**Status:** implemented, M0–M6. See [`docs/architecture.html`](docs/architecture.html)
+for the design document (the [rendered version](https://claude.ai/code/artifact/8dfdd950-7dce-4647-b9de-2393e09e20b6)),
+and [`docs/implementation.md`](docs/implementation.md) for where the code
+departs from it and why.
+
+```bash
+cp galley.example.toml galley.local.toml   # then edit the paths
+uv sync --extra dev
+uv run pytest -q
+(cd ui && npm install && npm run build)
+./run.sh                                   # http://127.0.0.1:8124
+```
 
 ---
 

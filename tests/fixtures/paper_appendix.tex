@@ -1,0 +1,463 @@
+% !TEX root = ../../../../main.tex
+% APPENDIX.  Follows the references, so it does not count against the 9-page
+% main-text limit.  Nothing here introduces a claim the main text does not make.
+%
+% app:info was added 2026-08-16 to discharge the author's standing request for
+% definitions and intuition for H / CE / KL / I.  app:search holds prop:bound,
+% which used to be a main-text subsection; it is a second thesis and the
+% denoising spine does not need it, but it is sound and E-side readers ask for
+% it.  tab:ledger was rebuilt the same day: the old table carried fourteen rows
+% belonging to a superseded spine, with no consumer anywhere in the main text,
+% and its caption cited an R-numbering that no longer exists.
+
+\section{Information-theoretic quantities, and how to read them}
+\label{app:info}
+
+Every quantity in this paper is an expectation of a code length, and the
+following is the whole of what a reader needs.
+
+Fix a distribution \(p\) over write-ups of a theorem and a model \(\pi\).
+The \emph{surprisal} \(-\log \pi(x)\) is the number of nats it costs to
+transmit the single write-up \(x\) to a receiver who knows \(\pi\);
+arithmetic coding achieves it to within two bits, and the model is therefore
+literally a code \citep{deletang2024compression}.
+The \emph{cross-entropy} \(\CE(p,\pi) = \E_{x\sim p}[-\log \pi(x)]\) is that
+cost averaged over the source, which is exactly what a held-out loss reports.
+The \emph{entropy} \(H(p) = \CE(p,p)\) is the cost of the best possible code for
+that source, and the \emph{Kullback--Leibler divergence}
+\(\KL{p}{\pi} = \CE(p,\pi) - H(p) \ge 0\) is the surcharge for using the wrong
+one \citep{cover2006elements}.
+Hence \cref{eq:cehkl}, and hence the direction that matters throughout:
+a measured loss is an \emph{upper} bound on the entropy of the corpus, tightening
+as the model improves.
+
+For two write-ups \(X\) and \(Y\) of the same theorem, the \emph{conditional
+entropy} \(H(X\mid Y)\) is the cost of transmitting \(X\) to a receiver who
+already holds \(Y\), and the \emph{mutual information}
+\(I(X;Y) = H(X) - H(X\mid Y) = H(Y) - H(Y\mid X)\) is the saving.
+It is symmetric, which is why it is the natural candidate for ``the content the
+two renderings share'':
+the mathematics cannot be more present in one rendering than in the other
+without ceasing to be shared.
+It is also non-negative and bounded by either marginal, \(I(X;Y) \le
+\min\{H(X), H(Y)\}\), which is \cref{eq:mathcap}.
+The one caution worth repeating:
+\(H\) and \(I\) are expectations under a distribution, estimated from held-out
+data with a model.
+They are not Kolmogorov complexity, which is the length of the shortest program
+printing one particular string --- per-string, uncomputable, and defined only up
+to a machine constant.
+The two meet only in aggregate, and nothing here needs the shortest program.
+
+\section{The fibre account: floors, exponents and the arithmetic}
+\label{app:noise}
+
+\paragraph{Why the floor is signal plus noise.}
+\Cref{prop:floor} is one line, but the estimand it is about is worth stating
+carefully.
+\(L_c(N,D) = H(X_c\mid Z) + \KL{X_c}{\pi_{N,D}}\) for every trained model, so
+\(\inf_{N,D} L_c \ge H(X_c\mid Z)\), with the infimum attained only in the limit
+where the model is the source.
+\(E_c\) in \cref{eq:chinchilla} is a fitted extrapolation of that limit.
+The chain rule against the certifying term gives
+\(H(X_c\mid Z) = I(X_c;X_{\mathrm{FL}}\mid Z) + H(X_c\mid X_{\mathrm{FL}}, Z)\)
+with no further assumption.
+Three cautions attach.
+The fit can undershoot its own estimand, and demonstrably does:
+the same runs yield a code floor of \(0.22\) or of nearly zero depending on the
+functional form \citep{luo2025codescalingdatahungry}, and the same
+natural-language data yields \(\num{scaling_fit/nl_ref/E}\) or \(1.82\) depending on the fitting
+procedure \citep{besiroglu2024chinchilla}.
+The estimand is a property of the corpus and the tokenisation jointly, so floors
+are comparable across channels only after conversion by tokens per theorem.
+And \(E\) absorbs any systematic gap the functional form cannot express, which
+is the reason we read orderings under one form on one grid rather than values.
+
+\paragraph{Where \(\alpha \approx 4/d\) comes from.}
+The relation is a resolution argument rather than a fit, and everything below
+substitutes into it, so it is worth having in one place.
+A network with \(N\) parameters can resolve a \(d\)-dimensional data manifold
+only down to cells of linear size \(s \asymp N^{-1/d}\);
+a target with bounded curvature is approximated to \(O(s^{2})\) on a cell, and a
+squared-error objective pays the square of that, \(O(s^{4}) = N^{-4/d}\), whence
+\(\alpha \approx 4/d\) --- with \(d\) the \emph{intrinsic} dimension of the data,
+not the ambient dimension of its representation \citep{sharma2022manifold}.
+What makes that evidence rather than numerology is that the two sides are
+measured by unrelated instruments:
+\(d\) by an intrinsic-dimension estimator on the network's internal
+representation, \(\alpha\) by a scaling fit, with the product found roughly
+constant and of order \(4\) across teacher--student setups and real datasets.
+\citet{bahri2024explaining} place the argument among the regimes --- it governs
+the \emph{resolution-limited} case, where the bottleneck is how finely the
+manifold can be carved, as against the variance-limited case, where the exponent
+comes from sampling fluctuation and is insensitive to \(d\) --- and our
+prediction is about the first.
+That is also why \cref{eq:alphafibre} carries \(\kappa\) rather than a literal
+\(4\):
+the constant is the least robust part of the transfer, the affine structure is
+what we test, and a channel-common \(\kappa\) is all that structure needs.
+Two steps below are ours rather than borrowed --- the local product structure
+that makes intrinsic dimension additive, and the identification of its second
+factor with the fibre of a rendering.
+The exponent relation is imported; the decomposition of \(d\) is the claim.
+
+\paragraph{Why the fibre adds to the dimension.}
+Locally, a rendering's data manifold factors as
+\(M_c \cong M_{\mathrm{math}} \times M_{\mathrm{form}}(c)\):
+a point is a choice of content together with a choice of how to realise it, and
+the two are chosen independently by construction, since the fibre is exactly
+what the content does not fix.
+Intrinsic dimension is additive over a product, so
+\(d_c = d_{\mathrm{math}} + d_{\mathrm{form}}(c)\), and substituting into
+\(\alpha \approx 4/d\) \citep{sharma2022manifold} gives \cref{eq:alphafibre}.
+Three consequences are worth stating separately.
+The term channel has \(d_{\mathrm{form}} = 0\) and so furnishes the reference
+point that turns the affine relation into a checkable prediction on three
+channels rather than an unfalsifiable fit.
+The relation is on \emph{reciprocals}, so equal increments of fibre dimension
+buy diminishing increments of exponent --- the first rung of the tower should
+gain more than the second.
+And \(\kappa\) is a nuisance constant, estimated from the reference channel
+rather than assumed to be exactly \(4\);
+nothing here depends on its value, only on its being common to the three arms,
+which the matched protocol enforces.
+
+\paragraph{The same conclusion from discrete skills.}
+Suppose content quanta have ranked use frequencies
+\(p^{\mathrm{c}}_k \propto k^{-(1+a_{\mathrm{c}})}\) and form quanta
+\(p^{\mathrm{f}}_k \propto k^{-(1+a_{\mathrm{f}})}\), and that a channel's
+training distribution is a mixture of the two populations
+\citep{michaud2023quantization}.
+Merging two power-law populations gives a ranked spectrum whose large-rank
+behaviour is set by whichever decays more slowly, so
+\(a_c = \min(a_{\mathrm{c}}, a_{\mathrm{f}}(c))\) asymptotically, with a
+mixture-weighted blend at finite rank.
+Deleting the form population therefore cannot lower the exponent, and strictly
+raises it whenever form is the flatter of the two.
+This route predicts something the manifold route does not:
+both spectra are measurable on the corpora \emph{without training anything} ---
+lemma-citation frequencies on the formal side against \(n\)-gram frequencies on
+the prose side --- so the fitted exponents acquire a corpus-only predictor that
+can be checked against them.
+
+\paragraph{Entropy and dimension are independent, which is what makes the theory
+falsifiable.}
+A fibre with \(m\) independent uniform binary choices per theorem has entropy
+\(m\log 2\) and dimension \(m\).
+A fibre with one choice among \(2^{m}\) styles, each deterministic given a
+context the model can see, has the same entropy and dimension close to one once
+that context is available.
+Conversely, \(m\) nearly deterministic conventions give dimension \(m\) and
+entropy near zero.
+So \(H(\nu_c)\) and \(d_{\mathrm{form}}(c)\) are not functions of one another,
+and an intervention on one at fixed other is possible in principle.
+The synthetic dial test of \cref{sec:experiments:law} is that intervention:
+generator temperature is a change of the first kind, generator style repertoire
+of the second.
+Any account summarising a channel's noise as a single scalar predicts the two
+dials move \(E\) and \(\alpha\) together;
+\cref{eq:alphafibre} predicts they separate.
+
+\paragraph{The exponent comparison.}
+For an \(s\)-smooth target on a \(d\)-dimensional domain, \(n\) samples fill the
+domain at spacing \(h \asymp n^{-1/d}\), and an \(s\)-smooth function is
+approximated to \(O(h^{s})\) at that spacing, giving squared error
+\(n^{-2s/d}\) when the observations are exact.
+Under observation noise no estimator does better than \(n^{-2s/(2s+d)}\)
+\citep{stone1982optimalrates, tsybakov2009nonparametric}.
+The ratio of exponents is \(d/(2s+d) < 1\), for every \(s\) and every \(d\):
+noise costs a strictly flatter rate, not merely a higher floor.
+\citet{cui2021noisycrossover} localise the transition --- the noiseless exponent
+holds up to a crossover sample size set by the noise level, and a strictly
+slower one holds beyond it --- which is what makes the penalty grow with the
+budget rather than sit as a constant.
+We restate the seam from \cref{sec:method:scaling}:
+these are results about regression with additive observation noise, and we
+import the decomposition, not the exponents.
+
+\paragraph{The compute-optimal ratio, and why it is not a counterexample.}
+Minimising \(E + AN^{-\alpha} + BD^{-\beta}\) subject to \(C \propto ND\) gives
+\(\alpha A N^{-\alpha-1} = \beta B D^{-\beta-1} \cdot (D/N)\), hence
+\(N_{\mathrm{opt}} \propto C^{\beta/(\alpha+\beta)}\),
+\(D_{\mathrm{opt}} \propto C^{\alpha/(\alpha+\beta)}\), and
+\[
+  \frac{D_{\mathrm{opt}}}{N_{\mathrm{opt}}}
+  \;\propto\; C^{(\alpha-\beta)/(\alpha+\beta)}.
+\]
+With the published natural-language fit (\(\alpha = \num{scaling_fit/nl_ref/alpha}\), \(\beta = \num{scaling_fit/nl_ref/beta}\))
+the exponent is \(0.097\);
+with the code fit (\(\alpha = 0.485\), \(\beta = 0.298\)) it is \(0.239\)
+\citep{hoffmann2022chinchilla, luo2025codescalingdatahungry}.
+A corpus with a steeper \emph{model} exponent therefore wants proportionally
+more data as compute grows --- which is what ``code is more data-hungry at
+compute-optimality'' reports, and it is a consequence of the steeper exponent
+rather than evidence against it.
+The quantity our claim concerns is the other one:
+to come within \(\eps\) of a channel's own floor costs
+\(D(\eps) = (B/\eps)^{1/\beta}\) tokens, so a flatter \(\beta\) is a tax whose
+multiplier grows without bound as \(\eps \to 0\).
+
+\section{Cross-entropy bounds the log search budget}
+\label{app:search}
+
+This result is not on the paper's spine;
+we record it because the loss we measure has a second reading that costs
+nothing to state.
+Fix a goal \(t\) and a policy \(\pi(\cdot\mid t)\) over serialised candidates.
+The \emph{search difficulty} is \(\Dsearch(t) = -\log\pi(A(t)\mid t)\) and the
+\emph{reference cross-entropy} is \(\CE(t) = -\log\pi(\sigma(P^\star)\mid t)\),
+the loss on the serialisation of one library proof, which training optimises and
+a checkpoint reports for free.
+Pass@1 is exactly \(e^{-\Dsearch(t)}\).
+
+\begin{proposition}[Reference cross-entropy bounds the log search cost]
+\label{prop:bound}
+Let \(A(t)\) be the set of serialised terms the kernel accepts for \(t\), with
+\(\sigma(P^\star) \in A(t)\).
+Sampling independently at temperature one, the success probability is
+\(p = \pi(A(t)\mid t) \ge \pi(\sigma(P^\star)\mid t) = e^{-\CE(t)}\), and draws
+to a first accept are geometric with mean \(1/p\), so
+\(\log\E[\#\text{samples}] = \Dsearch(t) \le \CE(t)\).
+\end{proposition}
+
+The argument is monotonicity of a measure under set inclusion;
+what earns it a number is that three conditions are load-bearing.
+\emph{(i)} \(\CE\) must be the loss on the value region whole --- every target
+from the token after the type/value separator through the terminal
+\texttt{<eos>}, none masked --- which is not the trainer's full-sequence loss,
+the two differing by the entire type-region loss.
+\emph{(ii)} The sampler must be the deployed one:
+any nucleus cut or length cap that can prune a token of \(\sigma(P^\star)\)
+voids the identification, and a temperature away from one moves \(p\) in no
+universal direction.
+\emph{(iii)} The accept set must be the kernel's;
+a weaker oracle admits terms the kernel would reject.
+Pulling \(A(t)\) back through any decoder gives the same inequality on any
+channel, so the bound is not a property of this substrate.
+What injectivity buys is that here a string log-probability \emph{is} a term
+log-probability, so the slack \(\CE(t) - \Dsearch(t)\) is exactly the mass on
+other accepted terms;
+a channel realising one mathematical object as many strings adds a term to the
+slack that says nothing about which proof was found.
+
+\section{The roster, and the admissibility rule}
+\label{app:admissibility}
+
+\paragraph{Candidate corpora.}
+\Cref{tab:roster} is the menu \cref{sec:experiments:population} draws from;
+a corpus enters the matched set only through the join and cascade described
+there, so this is a menu and not a commitment.
+Every figure was verified against primary sources.
+We use the labels exactly:
+Goedel-Prover and Goedel-Prover-V2 \citep{lin2025goedelprover,
+lin2025goedelproverv2} are whole-proof \emph{provers}, and what
+autoformalisation names here is the statement-formalizer component of such a
+pipeline, never the prover.
+
+\begin{table}[h]
+\centering
+\footnotesize
+\caption{Candidate corpora for the paired population. ``NL side'' is what the
+corpus supplies in English; ``Lean 4 side'' is whether kernel-checkable formal
+statements exist and who produced them. miniF2F and ProofNet are Lean~3
+originals with community Lean~4 ports; NuminaMath's solutions are of mixed human
+and synthetic provenance and its Lean side is the separately released
+NuminaMath-LEAN; PutnamBench publishes $1{,}692$ human formalisations of its
+$640$ problems across three systems, Lean~4 among them, with final answers but
+no worked solutions.}
+\label{tab:roster}
+\setlength{\tabcolsep}{4pt}%
+\begin{tabular}{@{}p{0.24\textwidth} r p{0.27\textwidth} p{0.25\textwidth}@{}}
+\toprule
+corpus & problems & NL side & Lean 4 side \\
+\midrule
+GSM8K \citep{cobbe2021gsm8k} & $8{,}500$ &
+  statements + human solutions & none curated (control stratum) \\
+MATH \citep{hendrycks2021math} & $12{,}500$ &
+  statements + human step-by-step solutions &
+  partial, via miniF2F ($260/488$ rows) \\
+OlympiadBench \citep{he2024olympiadbench} & $8{,}476$ &
+  statements + expert step-by-step solutions & none \\
+Omni-MATH \citep{gao2024omnimath} & $4{,}428$ &
+  statements + human annotations & none \\
+miniF2F \citep{zheng2022minif2f} & $488$ &
+  statements only & human-formalised \\
+ProofNet \citep{azerbayev2023proofnet} & $371$ &
+  statements + natural-language proofs & human-formalised \\
+Lean Workbook \citep{ying2024lean} & $57{,}231$ &
+  statements (AoPS forum) & autoformalised statements \\
+NuminaMath \citep{li2024numinamath} & $859{,}608$ &
+  statements + chain-of-thought solutions &
+  $104{,}155$ rows (NuminaMath-LEAN) \\
+PutnamBench \citep{tsoukalas2024putnambench} & $640$ &
+  statements + final answers & human-formalised \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{The declaration-order admissibility rule.}
+Measurement environments import the whole library, so a held-out goal
+\texttt{Foo.bar} can be discharged by \texttt{@Foo.bar}:
+sound, axiom-clean and worthless as evidence.
+We admit an accept only if every constant it cites was already elaborated when
+the goal's own declaration was, ranking constants by (module index in the import
+topology, source start line) and permitting equality only within a single source
+span.
+Declaration order rather than the coarser module index is what keeps the
+reference proof admissible:
+on a pilot of \(4{,}710\) theorem rows, \(81.2\%\) of reference witnesses cite at
+least one constant from their own module, so a module-index cut would discard
+the reference proof for roughly four goals in five.
+We report the coarse cut as a sensitivity, never as the primary arm.
+
+\section{The object: constructors and reduction}
+\label{app:expr}
+
+Lean~4's kernel terms inhabit one inductive type whose constructors fall into
+eleven kinds.
+\emph{Bound variables} (\texttt{bvar}) are de~Bruijn indices counting binders
+outward;
+\emph{free variables} (\texttt{fvar}) name hypotheses in a local context;
+\emph{metavariables} (\texttt{mvar}) are elaboration holes and must not appear in
+a closed candidate.
+\emph{Sorts} (\texttt{sort}) carry a universe level, with \(\mathsf{Prop}\) the
+sort at level zero.
+\emph{Constants} (\texttt{const}) name environment declarations together with an
+explicit universe instantiation.
+\emph{Applications} (\texttt{app}) are binary and curried.
+\emph{Lambda} (\texttt{lam}) and \emph{dependent function} (\texttt{forallE})
+abstractions carry a binder name, a domain, a body, and binder-information
+determining implicitness.
+\emph{Let} bindings (\texttt{letE}) carry a type, a value, and a body.
+\emph{Literals} (\texttt{lit}) are natural-number or string constants.
+\emph{Projections} (\texttt{proj}) select a field of a structure by index.
+
+Reduction is by \(\beta\), \(\zeta\), \(\delta\), \(\eta\), \(\iota\), and
+projection reduction.
+Definitional equality is decided by \isDefEq, which interleaves weak-head
+normalisation with structural comparison and a lazy unfolding heuristic.
+The procedure is sound and incomplete:
+an ``equal'' answer is a proof of definitional equality, a ``not equal'' answer
+is a failure to find one within budget.
+Because acceptance is what we count, incompleteness costs us candidates and
+never costs us soundness.
+The propositions-as-types correspondence \citep{curry1934functionality,
+Howard1980} is why theorems and definitions share this one object.
+
+\section{The soundness record at the pin}
+\label{app:soundness}
+
+\paragraph{Accept order.}
+On a candidate \(c\) and goal \(t\) the certification routine runs:
+(i) a syntactic subject guard rejecting metavariables, loose bound variables and
+malformed projections;
+(ii) closedness checks on \(t\) and on the reference;
+(iii) kernel ratification of \(c\) against \(t\) by declaration addition ---
+when no goal is supplied it instead infers a type and ratifies against that;
+(iv) a transitive axiom-closure walk over the cited constants;
+(v) \(\isDefEq(c, e)\) against the reference with metavariable assignment
+disabled.
+The certificate type's constructor is private to its module, so acceptance
+cannot be minted anywhere else;
+that property is pinned by a test asserting the construction fails to compile.
+The kernel check is forced to run synchronously, because an asynchronous
+elaboration frontend can otherwise defer it into a snapshot task that no one
+awaits.
+On a walked accept the trusted axiom base is contained in
+\(\{\texttt{propext}, \texttt{Classical.choice}, \texttt{Quot.sound}\}\);
+an empty recorded closure means ``closure not observed'', never ``no axioms''.
+
+\paragraph{Red-team gate.}
+Twenty-two adversarial probes over five suites run against the pinned verifier
+and are green at the pin:
+an axiom-guard suite; an in-Lean red team in a library-free environment;
+a production-binary canary against the pinned library whose expected verdict
+triple is \(\{\textsf{reject}, \textsf{reject}, \accept\}\);
+an evaluation-side reroute probe;
+and the kernel positive control below.
+The probe expectations comprise five accepts, eleven rejects, three type
+mismatches, one parse error, and two protocol outcomes.
+The fixture is content-addressed and the verifier tree is recorded by digest, so
+the gate result is reproducible against a named verifier revision rather than
+against ``the code at the time''.
+
+\paragraph{Positive control.}
+We retain \texttt{leanprover/lean4\#14613}:
+a misreading in the kernel's type checker of a sort that is \(\mathsf{Prop}\)
+only up to universe normalisation, which permitted a projection out of a proof.
+The probe asserts two independent things --- that the kernel rejects the leak,
+and that no inductive in the certification environment is a hazard for it --- and
+records its own reachability caveat:
+the bug is real but not reachable from a stock environment.
+We report it as a control that the gate can detect a real kernel defect, not as
+a vulnerability we survived.
+
+\paragraph{The defeq fidelity guard.}
+Kernel ratification alone confirms that a candidate is \emph{some} well-typed
+object.
+Tying acceptance to definitional equality with the \emph{goal} type is what
+closes the well-typed-but-wrong channel, in which an agent is rewarded for a
+proxy that diverges from the intended objective
+\citep{skalse2022rewardhacking}.
+This matters most when kernel acceptance is used as a binary reward
+\citep{lambert2024tulu3}.
+
+\section{The pre-registration ledger}
+\label{app:ledger}
+
+\begin{table}[t]
+\centering
+\small
+\caption{Every quantity this paper reports, its epistemic status as of
+\(2026\text{-}08\text{-}16\), and the instrument that produces it. ``Proven''
+means it follows from the definitions; ``measured'' means the number in the main
+text is a completed measurement at the current pin; ``to measure'' means the
+instrument exists but has not been run; ``to re-measure'' means a run exists but
+has been withdrawn as invalid or deprecated and the number is \emph{not} carried
+forward; ``to build'' means the instrument itself is outstanding. R1--R7 are the
+protocol of \cref{sec:method:protocol}.}
+\label{tab:ledger}
+\begin{tabular}{p{0.34\textwidth} p{0.14\textwidth} p{0.42\textwidth}}
+\toprule
+Quantity & Status & Instrument \\
+\midrule
+Injectivity of \(\sigma\) & proven & byte-exact whole-pack decode over retained rows \\
+\(I(\mathrm{NL};\mathrm{FL}) \le H(\mathrm{FL}) \le \CE_{\mathrm{FL}}\) & proven & \cref{eq:mathcap} \\
+\(E_c = I(X_c;X_{\mathrm{FL}}\mid Z) + H(\nu_c\mid X_{\mathrm{FL}}, Z)\) as an estimand & proven & \cref{prop:floor} \\
+\(\Dsearch \le \CE\) & proven & \cref{prop:bound} \\
+\(\CE_{\mathrm{FL}}\) per theorem at the current pin & \textbf{to re-measure} & the E2 term arm re-runs the deprecated-configuration E0 pilot (\cref{sec:experiments:pilot}) \\
+\(\CE_{\mathrm{NL}}\) per theorem, scorer ladder & to measure & E2: bits-per-byte scoring of the paired rows under the pre-registered prompt, summed to nats per theorem \\
+Certified misfit residuals \(\CE(\pi_{\mathrm{weak}})-\CE(\pi_{\mathrm{best}})\) & to measure & the E2 scorer ladder, paired per-row differences with bootstrap CIs \\
+\(E\), \(\alpha\), \(\beta\) per channel & \textbf{to build} & the three from-scratch grids of \cref{sec:experiments:law}; the term grid is designed and costed, the other two are not \\
+Tokens per theorem, per channel & to measure & the packers for each channel over the joined pairs; required before any floor is compared \\
+Accept-set entropy (proof multiplicity) & to measure & sampling harness at the pre-registered budget with the declaration-order cut, kernel as oracle \\
+De~Bruijn factor vs.\ surface Lean & to measure & source-range join against the pinned checkout, token-weighted with a bootstrap interval \\
+Declaration-order cut (R7 admissibility) & \textbf{to build} & post-filter on the maximum cited rank the constant-closure walk records \\
+Over-cap fraction, library vs.\ eval split & \textbf{to re-measure} & witness-length census re-run with \texttt{serialize\_expr\_hex} at \texttt{split\_names=True}: the previous run measured the JSON encoding of the \Expr{}, not the serialised stream \\
+Verbatim-match contamination & to measure & structural digest join of accepted terms against the library \\
+\(H_\theta\) free-running, by temperature & to measure & the E4 sampling harness, with degeneracy check and autoformaliser drop rate \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{An instrument that did not work: guesswork bounds}
+\label{app:guesswork}
+
+We report a negative instrument result rather than omit it.
+The natural information-theoretic strengthening of \cref{prop:bound} replaces
+the geometric sampling model with optimal guessing:
+\citet{arikan1996guessing}, following \citet{massey1994guessing} and extended by
+\citet{sundaresan2007guessing}, bounds the expected number of guesses to
+identify a value in terms of a R\'enyi entropy of order one half, which would
+give a lower bound on search cost to complement our upper bound.
+We implemented it and it is vacuous on this problem.
+The bound becomes negative --- and hence says nothing --- whenever the entropy
+estimate falls below roughly \(\log(1+\log M)\) for the support size \(M\)
+implied by the context cap and vocabulary, which on our surface is around eleven
+nats;
+that is precisely the regime of the goals whose conditional distributions are
+most concentrated, which is to say most of the library.
+The estimator also carries its own convergence alarm, the gap between the
+R\'enyi estimate and a Gaussian surrogate, and that gap is tens of nats where
+the bound would otherwise be interesting.
+We record this so that the next reader does not spend the same effort.

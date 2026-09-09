@@ -1,0 +1,927 @@
+% !TEX root = ../../../../main.tex
+% SECTION 4 --- Experiments.  Budget: 2.6 pages.
+%
+% PART PRE-REGISTRATION, PART RESULTS.  E1 has run (60 cells, all measured) and
+% now reports; E2, E3 and E4 are still \tbm with their instruments named; E0 is
+% measured under a deprecated configuration and quoted WITH its disclaimer.
+%
+% EVERY E1 NUMBER IS \num{sweep/...}, READ FROM data/sweep/values.tex, WHICH IS
+% AUTO-GENERATED.  Never type one in.  Re-emit from the qlambda repository with
+%   uv run python eval/cli/sweep_fit.py --emit-tex FLM/data/sweep
+% and see data/sweep/meta.tex for provenance and the three standing caveats.
+%
+% BINDING RULES:
+%  0. The registered decision rules are quoted UNCHANGED and the outcome is
+%     reported after them, in the same order.  Do not edit a rule to match what
+%     was found — the pre-registration is the credibility, and two of the rules
+%     turned out not to be answerable as posed, which is itself the finding.
+%  1. NEVER refresh the E0 table in place.  The re-run is a registered
+%     experiment (the E2 term arm); silently updating a quoted pilot number is
+%     exactly the Figure-3 failure mode this section exists to avoid.
+%  2. The Figure-3 audit is not compressible below the seven items.  All three
+%     reviewers and the AC of the predecessor named that figure as its strongest
+%     evidence; publishing the audit is what earns the rebuild any credit.
+%  3. E1 leads because it is the instrument the title's claim rests on, and its
+%     kill conditions stay ordered: the unit trap first, because it is the one
+%     that can manufacture the result.
+%  4. "Goedel-Prover" names a whole-proof PROVER; what we need is the statement
+%     FORMALIZER component of such a pipeline.  Use the labels exactly.
+
+\section{Experiments}
+\label{sec:experiments}
+
+The design, the population and the decision rules were fixed before any number
+was read, and they are stated here as they were registered, so the results can
+be read against a fixed target rather than a moving one.
+One of the four registered experiments has now run.
+\Cref{sec:experiments:law} reports it, and reports it against the rules in the
+order they were written --- including the two places where those rules turned
+out not to be answerable in the form they were posed.
+E2, E3 and E4 remain unmeasured and every quantity in them is marked as such,
+with the instrument that will produce it named in place.
+The de-risk pilot of \cref{sec:experiments:pilot} is a separate case: it is
+measured under a deprecated configuration and quoted with that disclaimer
+rather than silently refreshed.
+
+\subsection{The paired population}
+\label{sec:experiments:population}
+
+The comparison needs the same theorem on all three channels with a genuine
+natural-language \emph{proof} rather than a problem statement, which is scarcer
+than it looks:
+a corpus pairing an informal statement with a formal statement pins down no
+argument on either side.
+We join a formal corpus carrying complete human-annotated Lean proofs against a
+natural-language corpus carrying complete worked solutions, on problem text.
+\Cref{tab:roster} fixes the candidates.
+Statement banks with Lean formalisations are plentiful, but rows carrying a
+complete \emph{worked} solution alongside a kernel-checkable formal side are
+scarce --- of the roster only ProofNet pairs a natural-language proof with a
+formal statement natively --- and where a formal side must be produced rather
+than joined, a statement autoformaliser supplies it with the kernel and a
+faithfulness check downstream \citep{wang2025kimina, lin2025goedelprover,
+gao2025herald}.
+Two facts are declared before any result.
+Each row carries whether its formal proof and its solution are human-authored or
+machine-generated, and strata are never pooled silently.
+And question type is stratified, because competition corpora mix goals that ask
+for a proof with goals that ask for a number, the latter formalising into
+decision-procedure calls whose cost says nothing about reasoning;
+grade-school word problems are carried as an explicitly degenerate control with
+\emph{opposite} pre-registered predictions, so the control discriminates rather
+than illustrates.
+
+\tbm{the full selection cascade as a table: source rows, rows with a
+proof-bearing formal witness, join rate under whitespace and alphanumeric
+normalisation, rows whose natural-language field is a derivation rather than a
+statement, rows surviving decontamination, and the final matched set, with
+difficulty statistics at every stage so the reader can see which way the cascade
+selects; instrument: the join and audit scripts, published}
+
+\subsection{E0 --- the de-risk pilot, and its disclaimer}
+\label{sec:experiments:pilot}
+
+One measurement predates this pre-registration and is what de-risks it;
+we quote it with its flaws stated rather than hold it back.
+Under an earlier configuration of the term pipeline --- since deprecated, which
+is why every number here is de-risk evidence and none is a result --- the
+per-theorem surprisal of held-out declarations was:
+
+\begin{center}
+\begin{tabular}{@{}lrrrrrr@{}}
+\toprule
+nats/theorem & median & IQR & mean & p90 & p99 & max \\
+\midrule
+proof term (\(H_{\mathrm{value}}\)) &
+  3.10 & 0.90--10.50 & 10.15 & 25.1 & 93.4 & 1035.3 \\
+statement (\(H_{\mathrm{type}}\)) &
+  16.42 & 14.46--20.34 & 18.88 & 27.5 & 52.0 & 349.1 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Mathematical prose runs of order \(10^{0}\) nats per token
+\citep{shannon1951prediction, brown1992estimate, deletang2024compression}, so a
+\(10^{2}\)--\(10^{3}\)-token worked solution costs \(10^{2}\)--\(10^{4}\) nats
+per theorem --- an estimate, not a measured distribution.
+No published figure is the per-token cross-entropy of mathematical prose as
+such, so we say what stands behind the order of magnitude.
+\Citet{gao2020pile} report test bits per byte on an arXiv component falling
+from \(1.35\) to \(0.77\) across model scale, which is \(0.53\) nats per byte
+and, at a byte-per-token ratio we supply rather than measure, of order one nat
+per token;
+that component is \LaTeX{} source across all fields rather than prose, and the
+conversion is ours.
+The predecessor to this work measured arXiv abstracts at \(1.73\) nats per
+token against \(2.79\) on general text, teacher-forced and per token, under a
+configuration this paper otherwise deprecates.
+The re-run at the current pin is part of the registered programme.
+The pilot's role is confined to pricing \(\CE_{\mathrm{FL}}\) in
+\cref{eq:mathcap}:
+it says the experiment is worth running, not that the conclusion holds.
+
+\subsection{E1 --- one scaling law per channel}
+\label{sec:experiments:law}
+
+This is the instrument the title's claim rests on, and it has now run.
+For each channel we train a from-scratch grid over model size and data and fit
+\cref{eq:chinchilla} on total parameters, under one functional form, one
+fitting procedure and one grid design.
+The arms are from scratch rather than fine-tuned (R1) because a pretrained body
+imports an unknown quantity of the very data the fit is about.
+All three arms are built and measured:
+\num{sweep/term/sizes} model sizes against \num{sweep/term/dlevels} data rungs
+per channel, \num{sweep/term/cells} cells on each arm and \(60\) in all, every
+cell scored on the same \(17{,}566\) held-out theorems of one frozen
+population.
+Because the three vocabularies differ by \(8\times\), the total-parameter
+ladders differ per channel --- \num{sweep/term/nlo}M to \num{sweep/term/nhi}M
+on term, \num{sweep/surf/nlo}M to \num{sweep/surf/nhi}M on surface,
+\num{sweep/nl/nlo}M to \num{sweep/nl/nhi}M on English --- while on the
+non-embedding axis all three arms are the \emph{same} seven models,
+\num{sweep/term/nelo}M to \num{sweep/term/nehi}M.
+We report the exponent on both axes throughout and quote neither alone, because
+an embedding parameter buys less capacity than a block parameter and the
+embedding's share of \(N\) is channel-dependent, which inflates \(\alpha\) most
+where the vocabulary is largest \citep{porian2024resolving}.
+This is not a hypothetical: \citet{pearce2024reconciling} attribute much of the
+Kaplan--Chinchilla exponent discrepancy to non-embedding counting \emph{combined
+with analysis at small scale}, and our ladder sits squarely in that regime, so
+the convention is predicted to move the answer here rather than merely permitted
+to.
+It does.
+The data axis is delivered tokens, never the nominal budget, which overstates
+them by up to a fifth.
+
+\begin{table}[t]
+\centering
+\small
+\caption{The three-channel sweep, \(60\) pre-registered cells, all measured.
+Cross-entropy is at each channel's best cell; it is \emph{not} a fitted
+irreducible term, because \(E\) is not identified over this grid's \((N,D)\)
+range.  The two rate columns are one measurement under two denominators, and
+they order the channels \emph{oppositely}.}
+\label{tab:sweep}
+\begin{tabular}{@{}lrrrrr@{}}
+\toprule
+ & \multicolumn{3}{c}{measured at the best cell}
+ & \multicolumn{2}{c}{\(\alpha\), prior-free} \\
+\cmidrule(lr){2-4}\cmidrule(lr){5-6}
+channel & nats/theorem & tokens/theorem & nats/token
+        & total \(N\) & non-emb.\ \(N\) \\
+\midrule
+kernel term  & \num{sweep/term/ce} & \num{sweep/term/tokperthm} & \num{sweep/term/natspertok}
+  & \num{sweep/term/flatalpha} & \num{sweep/term/flatalphane} \\
+surface Lean & \num{sweep/surf/ce} & \num{sweep/surf/tokperthm} & \num{sweep/surf/natspertok}
+  & \num{sweep/surf/flatalpha} & \num{sweep/surf/flatalphane} \\
+English      & \num{sweep/nl/ce}   & \num{sweep/nl/tokperthm}   & \num{sweep/nl/natspertok}
+  & \num{sweep/nl/flatalpha}   & \num{sweep/nl/flatalphane} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% TYPED NUMBERS IN THIS SECTION, and why each is allowed to be typed.  Every
+% quantity THIS CAMPAIGN measured is \num{sweep/...}; the concavity block is
+% emitted by sweep_fit.py and needs no flag (see data/sweep/meta.tex).  What is
+% left is three kinds of number that the sweep store cannot own:
+%   1. the E0 pilot table above — deprecated configuration, deliberately
+%      literal, and NEVER to be refreshed in place (binding rule 1);
+%   2. external literature values — the Pile bits-per-byte figures and the
+%      predecessor's arXiv-abstract measurement — which belong to their
+%      citations, not to us;
+%   3. the model size 53.6M below, frozen GRID GEOMETRY from
+%      assets/curated/scaling_sweep/grid.v1.json.
+% None of the three can be stranded by a re-measurement of this campaign, which
+% is the property the keyed store exists to guarantee.
+\paragraph{One result comes before the decision rules, because it limits what
+they can be applied to.}
+The term channel is measured \emph{outside} the functional family of
+\cref{eq:chinchilla} along the rung this grid varies --- which is a data rung
+and an optimiser-update rung at once, and the distinction is taken up below.
+At a fixed model size, three delivered-\(D\) budgets pin that rung
+with nothing left to estimate --- no prior, no \(\alpha\), no floor --- and the
+term arm's loss comes out \emph{concave} in \(\log D\).
+Since \(E_c\) and \(A_c N^{-\alpha_c}\) are both non-negative,
+\cref{eq:chinchilla} is necessarily \emph{convex} in \(\log D\) at every
+parameter value, so the observed curvature is not a poor fit but an impossible
+one;
+the two properties are equivalent, and steepening is available only at a
+negative constant.
+At \(53.6\)M parameters the concavity is
+\num{sweep/term/n54/concavity}, which is
+\num{sweep/term/n54/concavityz} standard deviations from zero.
+The test is closed form --- the concavity is linear in the log losses, so its
+standard deviation is exact rather than simulated --- and its noise scale is
+borrowed from the healthy arms' fit residual, which conflates measurement noise
+with the form being right.
+We therefore quote what that borrowing would have to be worth: term's own
+run-to-run scatter would have to be
+\num{sweep/term/n54/concavitybreakevenratio}\(\times\) the measured value
+before this became a chance result.
+
+\paragraph{What this licenses, and the confound that bounds it.}
+Two readings of the curvature have to be kept apart, and an earlier revision of
+this section ran them together.
+\emph{The curvature does not refuse the joint fit.}
+Under the prior in force the term arm's joint route is accepted, at
+\(R^2 = \num{sweep/term/rsq}\) over \num{sweep/term/cellsused} cells, and its
+exponents are reported from it.
+A previous revision estimated the term exponent from the arm's fixed-\(D\)
+slope instead, on the ground that the joint route returned an \(\alpha\) below
+that slope --- an arithmetic contradiction under \(f = 1\) rather than a weak
+result.
+That was a symptom of a prior--data conflict and never a measurement: under a
+data-exponent prior centred at \(0.298\) with the minimum width, the posterior
+came back no tighter than the prior itself, so the fit was pinned where the data
+did not want it and the misfit along that rung pushed \(\alpha\) down.
+The slope is in any case the wrong estimator on this arm, for the same reason
+the curvature exists --- the bound \(\lvert \mathrm{d} \log L / \mathrm{d} \log
+N \rvert \le \alpha\) needs a non-negative constant, and where the constant is
+negative the slope \emph{overstates} \(\alpha\).
+\emph{What the curvature does refuse is the family.}
+The fitted law misses its own cells by \num{sweep/term/relrms}\% on this arm
+against \num{sweep/surf/relrms}\% and \num{sweep/nl/relrms}\% on the other two,
+and the residuals are signed by rung rather than scattered --- which is what a
+wrong functional form looks like and what a noisy one does not.
+\emph{Reading the curvature as a statement about the data direction is a
+further step, and this grid does not license it.}
+The rungs vary \(D\) by varying the number of optimiser steps at fixed
+tokens-per-step, so data and optimisation are collinear by construction;
+at fixed batch and schedule the data axis \emph{is} the summed-learning-rate
+axis \citep{tissue2025annealing}, and the step term of
+\citet[\S5]{kaplan2020scaling} is a second law our three points cannot be
+separated from.
+Its \emph{magnitude}, at least, is not the issue.
+An excess loss from under-training that is linear in \(\log D\) cancels
+identically from a second difference, whatever its size, so no amount of
+uniform starvation can manufacture curvature;
+only a \emph{change} in the return to successive step increases can, and the
+sign of that change decides the sign of the bias.
+Where returns diminish --- the asymptotic regime --- the excess falls more
+across the low pair than the high and the measurement \emph{understates} the
+curvature.
+Where they accelerate, it overstates it, and that window was real rather than
+hypothetical: early training runs a plateau before the drop, and our shortest
+rung is a few dozen optimiser steps behind a handful of warmup steps.
+\emph{So we measured the direction instead of assuming one.}
+The quantity that settles it is the ratio of the returns to two successive step
+increases, which cells holding \(D\) fixed across \emph{three} step counts read
+directly --- two would not, a line having no curvature to find --- and the
+shortest rung admits a third count exactly, at four times and four times again,
+delivering its siblings' token total to the token.
+The second quadrupling of steps buys markedly less than the first, so the
+penalty diminishes rather than accelerates: it falls on the far side of the
+value at which it would cancel, and outside the window that would have made this
+result an artefact of the grid.
+Only the \emph{sign} of that comparison is claimed here, and deliberately.
+The three step counts are scored on the in-loop per-token loss rather than on
+the registered per-theorem observable, and the two are not related by a fixed
+factor --- different rows, different token regions --- so the ratio's magnitude
+is provisional where its direction is not, and the artefact window lies far
+enough away that the direction settles the question on its own.
+Substituting that measured penalty rather than an assumed one leaves the
+data-limited curve \emph{more} concave than the raw measurement, not less.
+The step confound was suppressing this finding rather than manufacturing it,
+and \num{sweep/term/n54/concavity} is a lower bound on the departure.
+\claude{\textbf{Your 2026-09-03 reporting-scope ruling governs this whole
+paragraph, and I had not read it when I wrote the first version of it this
+afternoon.}  \S10.3 records it: the step-versus-data experiment is \emph{not
+reported as a result}, because varying steps at fixed \(D\) necessarily varies
+batch size --- its own declared confound --- and a batch-size effect is not a
+scaling-law exponent; it stays in the methods document ``as the defence of
+\(+0.4982\)''.  And \(+0.9342\) and \(k_2\) are cited only to show \(+0.4982\)
+is not an artefact, ``never as a headline, and never in the paper's results''.
+I have brought three things into line with that: the section states the sign of
+the step penalty's curvature and no magnitude; the paragraph sits with
+\(+0.4982\) and calls it a lower bound rather than reporting a corrected value;
+and I have removed from \texttt{data/sweep/laws.tex},
+\texttt{data/sweep/meta.tex} and the figure's README a sentence I put there this
+afternoon quantifying how the fall divides between the two axes, which is the
+experiment's result and belongs in \S10.3 alone.  What those three now carry is
+the grid's \emph{geometry} --- the \(D\) rungs are also update counts --- which
+the grid file has always disclosed and which the confound paragraph above stated
+long before the experiment existed.
+
+\textbf{One question the ruling does not settle, and it is yours.}  ``It stays
+here, and only here'' admits two readings.  Read narrowly, ``here'' is \S10.3
+of the methods document, and then even the defence sentence above should go ---
+which would return this section to an unresolved confound and a curvature we
+decline to interpret, i.e.\ strictly worse for a reader than what it now says.
+Read as ``not as a result anywhere, defence permitted wherever \(+0.4982\) is
+reported'', the paragraph above is exactly in scope.  I have taken the second
+reading because the first makes the paper less true rather than more, but it is
+your ruling and your paper; say the word and the defence sentences come out.
+
+\textbf{The numbers are on hold, and correctly.}  I told the experiment session
+this morning that \(k_2\) transfers between the two observables because
+\(H = T \cdot L_{\mathrm{tok}}\) makes log-differences denominator-invariant.
+That was wrong: it assumes a fixed multiplicative relation, and the in-loop loss
+is per token over whole rows on a \(2{,}000\)-row subset while \(H\) is the
+proof-region NLL per theorem over all \(17{,}566\), so the rows and the token
+regions both differ.  The first quadrupling already shows the gap ---
+\(0.9509\) in-loop against \(0.918\) on \(H\) --- and the second cannot be
+checked at all, because \texttt{N54\_D176\_s1344\_term} has a checkpoint and no
+measure pass.  So \(+0.9342\) corrects an \(H\)-based concavity with a penalty
+read on a different observable.  The direction is not in doubt and the artefact
+window is far away; the magnitude is provisional.  The experiment session is
+holding the \(k_2\) keys for that reason and will emit them from the score files
+once the cell is scored --- about \(0.3\) GPU-hours, which is a launch and needs
+your word.  The \S10.13 emitter is on the same hold, under the same ruling.
+
+\textbf{What I have left standing and would like checked.}  \Cref{tab:laws}'s
+paragraph says the grid's data rungs are also update counts and that a
+\(\beta\) fitted on that axis is attributable to both, so no extrapolation in
+\(D\) is licensed.  I read that as geometry rather than as the experiment's
+result --- it needs only the grid file --- but it is adjacent to the ruling and
+you may want it narrower.}
+The English arm shows no such curvature at any size
+(\num{sweep/nl/concavityzmax} standard deviations at most), and the surface
+arm's data differences are too small against the noise for the test to decide
+either way --- so the campaign's position is one arm out of family, one in
+family, and one untestable, not two of three anything.
+
+\paragraph{Pre-registered decision rules, in order.}
+\emph{(i) The unit trap, first, because it is the one that can manufacture the
+result.}
+Each fitted floor is converted by that channel's tokens-per-theorem before any
+comparison.
+If the predicted ordering holds per token but not per theorem, we report that we
+have measured our tokenizers, and the claim fails.
+\emph{(ii) The floors.}
+We predict \(E_{\mathrm{NL}} > E_{\mathrm{surface}} > E_{\mathrm{term}}\) in
+nats per theorem;
+a non-monotone ordering, or an interval on any adjacent pair containing zero, is
+a negative result and is reported as one.
+\emph{(iii) The model exponents, and the affine form.}
+\Cref{eq:alphafibre} predicts \(\alpha_{\mathrm{term}} >
+\alpha_{\mathrm{surface}} > \alpha_{\mathrm{NL}}\), and more than the ordering:
+that the \emph{reciprocals} are affine in the fibre each rendering adds, so with
+the term channel as the zero-fibre reference the gaps
+\(1/\alpha_{\mathrm{surface}} - 1/\alpha_{\mathrm{term}}\) and
+\(1/\alpha_{\mathrm{NL}} - 1/\alpha_{\mathrm{term}}\) estimate
+\(d_{\mathrm{form}}/\kappa\) for the two renderings and must both be positive.
+We report the implied dimensions beside the exponents.
+\emph{We register no prediction for \(\beta\)}:
+\cref{eq:alphafibre} is a statement about the model exponent, and the published
+fits already show \(\beta\) nearly unmoved where \(\alpha\) moves a great deal
+(\cref{sec:method:scaling}).
+A \(\beta\) ordering, should we see one, is an observation and not a
+confirmation.
+\emph{(iv) The cross-check between instruments.}
+By \cref{prop:floor} a channel's floor is its signal plus its noise, and
+\cref{eq:mathcap} caps the signal independently, so the fitted floor ratio and
+the measured \(\CE_{\mathrm{FL}}/\CE_{\mathrm{NL}}\) of
+\cref{sec:experiments:cap} are two routes to one quantity.
+We publish both;
+if they disagree beyond their intervals, the functional form is wrong on at
+least one channel and we say so rather than pick the flattering one.
+\emph{(v) The dial test, which is what discriminates this theory.}
+On a synthetic arm whose English side is written by a generator we hold, the
+fibre is ours to set:
+raising the generator's temperature adds fibre \emph{entropy} at roughly fixed
+structure, while widening its style repertoire adds fibre \emph{dimension} at
+roughly fixed entropy.
+\Cref{sec:method:scaling} predicts that the first moves \(E\) and leaves
+\(\alpha\), and that the second moves \(\alpha\).
+Any account on which noise is a single scalar predicts both dials move both
+terms, so this is the comparison that separates the fibre theory from its
+competitors --- and it needs no human corpus, only compute.
+\tbm{fitted \((E,\alpha)\) at each setting of the two dials, with the generator
+and its sampling parameters published; instrument: the synthetic-English
+generator and the same grid and fitting routine as the main arms}
+\emph{(vi)} No floor's \emph{value} is read as an entropy, on any channel.
+
+\paragraph{The outcome, against those rules in the same order.}
+\emph{(i) The unit trap fires, and it is not a near miss.}
+The three channels order one way per theorem --- English
+\num{sweep/nl/ce}, term \num{sweep/term/ce}, surface \num{sweep/surf/ce} nats
+--- and the \emph{opposite} way per token, at \num{sweep/surf/natspertok},
+\num{sweep/nl/natspertok} and \num{sweep/term/natspertok} respectively
+(\cref{tab:sweep}).
+The reason is length: a theorem costs \num{sweep/term/tokperthm} term tokens
+against \num{sweep/surf/tokperthm} surface tokens, a factor above two hundred.
+Every cross-channel statement in this paper therefore names its denominator,
+and a reader should treat one that does not as undefined.
+\emph{(ii) The floor ordering cannot be tested as registered, and the quantity
+that stands in its place is non-monotone.}
+\(E\) is not identified over this grid's \((N,D)\) range --- no arm trains past
+two epochs, so the campaign's standing assumption fixes \(E\) at zero rather
+than fitting it --- and a rule written about fitted floors has nothing to read.
+What we can report is cross-entropy at each channel's best cell, which is a
+different and weaker quantity and is labelled as one throughout.
+On it the prediction half-holds: English is the most expensive channel per
+theorem, as predicted, but surface Lean is the \emph{cheapest} rather than the
+middle, so the ordering
+\(\mathrm{NL} > \mathrm{surface} > \mathrm{term}\) is non-monotone and is
+reported as the negative result the registration said it would be.
+\emph{(iii) One exponent inequality is refuted and one is supported, and they
+must not be reported as one verdict.}
+\(\alpha_{\mathrm{surface}} > \alpha_{\mathrm{NL}}\) is refuted.
+Both arms route to a joint fit, so the two numbers are the same quantity
+measured the same way, and under the Laplace posterior their \(90\%\) intervals
+are disjoint: English begins at \num{sweep/nl/alphalo} where surface has
+already ended at \num{sweep/surf/alphahi}.
+A \num{sweep/bootstrapdraws}-resample bootstrap agrees, and the way it agrees
+is worth one clause.
+Its medians reproduce both arms --- \num{sweep/surf/bootalpha} against
+surface's \num{sweep/surf/flatalpha}, \num{sweep/nl/bootalpha} against
+English's \num{sweep/nl/flatalpha} --- but its resampling distribution on the
+English arm is \emph{bimodal}, with an empty gap separating two solutions.
+The better-fitting one holds \num{sweep/nl/bootmode1share}\% of draws at
+\(R^2\) \num{sweep/nl/bootmode1rsq} and sits at
+\num{sweep/nl/bootmode1alpha} \([\num{sweep/nl/bootmode1lo},
+\num{sweep/nl/bootmode1hi}]\), reproducing the Laplace fit and disjoint from
+surface;
+the other is a degenerate basin at \(R^2\) \num{sweep/nl/bootmode2rsq} in which
+the data exponent collapses toward zero and roams two orders of magnitude.
+We rank by fit rather than by how many draws a mode holds, and name a principal
+solution only where the two orderings agree and the fits separate --- which
+they do here and do not on the term arm.
+Surface is unimodal at \num{sweep/surf/bootmode1alpha}
+\([\num{sweep/surf/bootmode1lo}, \num{sweep/surf/bootmode1hi}]\), a reported
+fact rather than an absence, and the reason its two interval routes never
+disagreed.
+Pooled into one interval those two solutions look like a single wide one that
+overlaps surface;
+separated, the principal mode is disjoint from surface as the Laplace route
+says.
+Surface itself is unimodal.
+We name the route and the shape because a quantile summary cannot show a gap:
+pooled, this arm's interval reads as honest width, and only the resampling
+histogram distinguishes one uncertain solution from two confident ones.
+The result does not rest on the priors, which point the other way --- the
+per-channel priors pull surface up and English down, that is, toward the
+registered inequality --- and dropping them widens the gap rather than closing
+it.
+It does not rest on the parameter convention either: surface is last on the
+total axis and last on the non-embedding axis (\cref{tab:sweep}).
+\(\alpha_{\mathrm{term}} > \alpha_{\mathrm{surface}}\) is supported, and the
+support is prior-free on both parameter conventions.
+% WITHDRAWN 2026-09-09, and this is the FOURTH reading of this arm to go.  The
+% sentence here read "is inconclusive, because term's exponent is not
+% identified", and it rested on the joint route being refused.  It was not the
+% data that refused it: under the superseded beta prior N(0.298, 0.10) the
+% posterior came back no tighter than the prior, so the fit was pinned where
+% the data did not want it and the misfit pushed alpha below the arm's own
+% fixed-D slope, which under f = 1 is impossible — so the code routed to the
+% slope and the prose read that routing as a property of the channel.  It was
+% a property of a prior.  Same 20 cells, same eval rows, same delivered D; the
+% prior in force (qlambda 1c114a9) centres term on the MEDIAN of its own
+% published domain rather than on Luo alone, the joint route is accepted, and
+% every width rule in the robustness table keeps it accepted.  The
+% out-of-family result is untouched by this: it uses no prior and no alpha.
+An earlier revision called it inconclusive because term's joint route was
+refused;
+that refusal was a prior--data conflict rather than a property of the channel,
+and is withdrawn above.
+All three arms now route to a joint fit, so the three exponents are the same
+quantity measured the same way, and dropping the priors entirely leaves the
+term and surface intervals disjoint on both axes ---
+\num{sweep/term/flatalpha} \([\num{sweep/term/flatalphalo},
+\num{sweep/term/flatalphahi}]\) against \num{sweep/surf/flatalpha}
+\([\num{sweep/surf/flatalphalo}, \num{sweep/surf/flatalphahi}]\) on total
+parameters, and \num{sweep/term/flatalphane}
+\([\num{sweep/term/flatalphanelo}, \num{sweep/term/flatalphanehi}]\) against
+\num{sweep/surf/flatalphane} \([\num{sweep/surf/flatalphanelo},
+\num{sweep/surf/flatalphanehi}]\) without the embeddings.
+% RESOLVED: the bootstrap pin is released.  values.tex is emitted at the new
+% default of 2,000 draws and agrees with docs/methods/scaling_sweep_v4330rc2.md
+% §10.5, which was rewritten to match (qlambda f15bf4d, d0c1339, e7dde87).  The
+% old pinned 0.2203 was seed 0 at 300 draws and off-centre by ~0.025, not
+% merely coarse; the converged value is ~0.245.  bootalpha now emits TWO
+% significant figures because the median's MC error is 0.014 and falls as
+% 1/sqrt(draws) — a third decimal would need ~1.5M resamples.  A slide also
+% reads that key.
+%
+% ONE CLAUSE WAS PROPOSED FOR THIS PARAGRAPH AND IS NOT WRITTEN: that term
+% discarding 21.1% of resamples is "a second, independent symptom of the same
+% non-identification".  It is not.  The nl arm discards 22.5% — MORE than term
+% — while carrying the campaign's best joint fit (R^2 0.989) on an accepted
+% joint route, and surf discards 0.2%.  The rate splits surf against the other
+% two, which is not the partition the claim needs, so it marks something else
+% and nothing here says what.  Retracted upstream in §10.5 (e7dde87).
+%
+% TWO WRONG YARDSTICKS WERE USED HERE, both now withdrawn, and the prose above
+% rests on neither.
+%   (1) I compared the gap to surface's floor against the 300->400 MOVEMENT of
+%       the estimate and called it a 10x margin.  The movement between two draw
+%       counts is the difference of two correlated estimates, not the error of
+%       either; the MCSE is ~6x larger.
+%   (2) The replacement — dividing the same gap by the MCSE — is also wrong,
+%       and for a sharper reason.  MCSE measures how precisely the BOOTSTRAP
+%       MEDIAN has been computed: a property of the resampling, not of alpha.
+%       "Is term's alpha below surface's interval" needs term's own bootstrap
+%       INTERVAL.  A gap over an MCSE answers "have we resampled enough",
+%       dressed as inference.
+%   (3) And the interval, once computed, turned out not to be one — see the
+%       bimodality note below.  All three summaries were correct and all three
+%       were misleading; the histogram was the only form of answer that helped.
+% Both yardstick errors were made under the old verdict (inconclusive) and the
+% old routing (term to its slope).  The verdict is now SUPPORTED and the
+% routing is joint, so neither retraction is load-bearing any more — they are
+% kept because the two mistakes are easy to repeat and cost nothing to record.
+The verdict is stated as supported rather than established, and the reason is
+the resampling below rather than any of the above.
+% THREE READINGS OF TERM'S BOOTSTRAP WERE PUBLISHED AND WITHDRAWN.  In order:
+%   (a) pooled interval [0.14, 1.28] "strictly containing surface's" — wrong,
+%       because term is BIMODAL and a pooled quantile on a mixture is not an
+%       interval;
+%   (b) "term's principal mode [0.128, 0.373] overlaps surface's" — wrong for
+%       a subtler reason: "principal" meant MOST POPULOUS, and on this arm the
+%       populous mode is the WORSE fit.  Measured per mode:
+%         term  low  alpha 0.199 beta 0.820  n=271  R2 0.6496
+%         term  high alpha 1.085 beta 1.225  n=116  R2 0.9388
+%         nl    low  alpha 0.197 beta 0.082  n=103  R2 0.5941
+%         nl    high alpha 0.659 beta 0.721  n=278  R2 0.9914
+%       On nl the majority mode is also the best-fitting one, so ranking by
+%       population was harmless there and wrong here.  The two arms order the
+%       criteria oppositely, so NO fixed rule about mode size is safe.
+%   (c) the surviving form makes no claim about either mode's position: term
+%       has two separated solutions of unequal fit quality pointing in
+%       opposite directions, and nothing chooses between them.
+% Numbers stay out of the prose until keys exist for the mode split — see the
+% request in data/sweep/meta.tex.  Two of the three arms are bimodal; surface
+% is unimodal and is the control for both readings.
+\emph{The bootstrap is reported beside that verdict, not as a defeater.}
+Resampling this arm returns \num{sweep/term/bootmodes} separated solutions
+rather than one uncertain estimate --- \num{sweep/term/bootmode2alpha} and
+\num{sweep/term/bootmode1alpha}, an order of magnitude apart with no draws
+between them --- and the more populous, at \num{sweep/term/bootmode2share}\% of
+draws, is the \emph{worse} fit: \(R^2\) \num{sweep/term/bootmode2rsq} against
+\num{sweep/term/bootmode1rsq}.
+Ranked by fit, as the rule requires and as the English arm's split is also
+read, the better solution sits at \num{sweep/term/bootmode1alpha}
+\([\num{sweep/term/bootmode1lo}, \num{sweep/term/bootmode1hi}]\) and reproduces
+the prior-free Laplace fit to within its own width --- the same agreement
+English shows, on the one channel whose functional form is otherwise refused.
+The pooled median, \num{sweep/term/bootalpha}, sits in the worse mode and is
+not this arm's exponent;
+it is what a summary statistic returns when it is asked to average two
+answers.
+What the rule declines to do here is \emph{designate}.
+The two fits do not separate cleanly enough to name a principal solution
+(\num{sweep/term/bootfitseparated} on the separation flag, against
+\num{sweep/nl/bootfitseparated} for English), so we report both and rest the
+verdict on the Laplace route and the flat fit rather than on choosing a mode.
+Had the populous mode been the right one the inequality would reverse.
+That is why this reads \emph{supported} and not \emph{established}, and it is
+the honest width of the claim.
+The implied fibre dimensions \(d = 4/\alpha\) are
+\num{sweep/term/dimne}, \num{sweep/surf/dimne} and \num{sweep/nl/dimne} on the
+non-embedding axis, and \num{sweep/term/dim}, \num{sweep/surf/dim} and
+\num{sweep/nl/dim} on the total axis.
+% The two axes used to ORDER term and English differently, and this sentence
+% used to say so.  Under the prior in force they agree — term is smallest on
+% both — so the disagreement is gone and citing it would be citing a fact the
+% store no longer holds.  Both axes are still reported, for the reason that
+% never depended on the disagreement.
+Both are reported because neither answers the question alone: the three
+vocabularies are \(8\times\) apart, so at the bottom of the ladder the
+embedding matrix is a large and \emph{channel-dependent} share of total \(N\),
+and a cross-channel dimension read on the total axis is partly a comparison of
+tokenizers.
+They now agree on the ordering, which they did not under the superseded prior;
+what they still disagree about is the size of each dimension, and by most on
+English and least on surface --- that is, in the order of the three vocabulary
+sizes, which is what the correction is a correction for.
+\emph{(iv) and (v) are not yet answerable}: the cross-check needs E2, which has
+not run, and the dial test needs the synthetic arm.
+\emph{(vi) is honoured}: no number above is read as an entropy.
+
+% BOTH EXPONENTS, ADDED 2026-09-09 on Luke's reading of the draft: the section
+% reported alpha and stopped, so a reader could not see beta at all, could not
+% see how well a fitted law reproduces its own cells, and could not check the
+% cross-study comparison the introduction makes.  All three are now printed.
+%
+% PAGE COST, stated because the budget is already over: this table and the
+% figure are about two thirds of a page together.  If the 9-page limit bites,
+% the figure goes to the appendix before the table does --- the table carries
+% the verdict-bearing numbers, the figure carries the reason to believe them.
+%
+% NOTHING HERE IS TYPED.  The published fits are keyed from
+% evaluation.scaling.PUBLISHED, whose entries were each verified against their
+% source on 2026-09-03; `steeper' counts them, because "ours is the steepest in
+% the literature" is a claim you check by counting rather than by eye.
+\paragraph{Both exponents, and what the second one is worth.}
+The registration predicts no \(\beta\), so what follows is observation rather
+than confirmation --- but a scaling law is two exponents and two amplitudes,
+and a section reporting one of the four leaves a reader unable to evaluate
+\(L(N,D)\) at all.
+With \(n = N/10^{6}\) parameters and \(d = D/10^{9}\) delivered tokens, and
+\(H\) in nats per theorem:
+% One law per line.  Three on one line overflowed the text block and truncated
+% the English law mid-term in the PDF --- a silent overfull \hbox, which is a
+% warning LaTeX gives and nobody reads.  Checked by looking at the rendered
+% page, which is the only check that catches it.
+\begin{align*}
+\text{term:}\quad H &= \num{sweep/term/ampa}\, n^{-\num{sweep/term/alpha}}
+   + \num{sweep/term/ampb}\, d^{-\num{sweep/term/beta}}, \\
+\text{surface:}\quad H &= \num{sweep/surf/ampa}\, n^{-\num{sweep/surf/alpha}}
+   + \num{sweep/surf/ampb}\, d^{-\num{sweep/surf/beta}}, \\
+\text{English:}\quad H &= \num{sweep/nl/ampa}\, n^{-\num{sweep/nl/alpha}}
+   + \num{sweep/nl/ampb}\, d^{-\num{sweep/nl/beta}}.
+\end{align*}
+No irreducible term appears because none is fitted: \(E\) is not identified
+over this grid and is fixed at zero under \(f = 1\).
+
+\begin{table}[t]
+\centering
+\small
+\caption{Both exponents of the fitted law, the two diagnostics that say what
+each is worth, and the \num{sweep/lit/count} commensurable published
+Chinchilla-form fits.  \emph{rel.\ err} is how far a law misses the cells it
+was fitted on; it is printed beside \(R^2\) because \(R^2\) flatters a fit over
+two orders of magnitude, and term's disagreement between the two columns is the
+out-of-family result of \cref{sec:experiments:law} in numerical form.
+\(\beta_{\mathrm{sd}}/\mathrm{prior}\) is the posterior width over the prior's:
+below \(1\) the data moved \(\beta\), at \(1\) the prior was read back.
+\emph{steeper} counts how many published fits exceed ours.}
+\label{tab:laws}
+% SIX columns, not seven.  A `cells' column read 20 on every arm and cost
+% 32pt of overfull box; the count is already in tab:sweep and in the ladder
+% fragment, so it was the one column carrying no information here.
+% \tabcolsep is local to the table: six columns of bracketed intervals sat
+% 3.9pt over the text block at the default 6pt, and shaving the gutter is
+% cheaper than shortening a number or dropping a second column.
+\setlength{\tabcolsep}{4.5pt}%
+\begin{tabular}{@{}lccrrr@{}}
+\toprule
+ & \(\alpha\) [90\%] & \(\beta\) [90\%] & \(R^2\) & rel.\ err
+ & \(\beta_{\mathrm{sd}}/\mathrm{prior}\) \\
+\midrule
+kernel term
+  & \num{sweep/term/alpha} [\num{sweep/term/alphalo},\,\num{sweep/term/alphahi}]
+  & \num{sweep/term/beta} [\num{sweep/term/betalo},\,\num{sweep/term/betahi}]
+  & \num{sweep/term/rsq} & \num{sweep/term/relrms}\%
+  & \num{sweep/term/betashrink} \\
+surface Lean
+  & \num{sweep/surf/alpha} [\num{sweep/surf/alphalo},\,\num{sweep/surf/alphahi}]
+  & \num{sweep/surf/beta} [\num{sweep/surf/betalo},\,\num{sweep/surf/betahi}]
+  & \num{sweep/surf/rsq} & \num{sweep/surf/relrms}\%
+  & \num{sweep/surf/betashrink} \\
+English
+  & \num{sweep/nl/alpha} [\num{sweep/nl/alphalo},\,\num{sweep/nl/alphahi}]
+  & \num{sweep/nl/beta} [\num{sweep/nl/betalo},\,\num{sweep/nl/betahi}]
+  & \num{sweep/nl/rsq} & \num{sweep/nl/relrms}\%
+  & \num{sweep/nl/betashrink} \\
+\midrule
+\citet{hoffmann2022chinchilla}, English
+  & \num{sweep/lit/hoffmann2022chinchilla/alpha}
+  & \num{sweep/lit/hoffmann2022chinchilla/beta} & & & \\
+\citet{luo2025codescalingdatahungry}, code
+  & \num{sweep/lit/luo2025codescalingdatahungry/alpha}
+  & \num{sweep/lit/luo2025codescalingdatahungry/beta} & & & \\
+\citet{yang2026codescaling}, \num{sweep/lit/yang/count} languages
+  & \num{sweep/lit/yang/alphalo}--\num{sweep/lit/yang/alphahi}
+  & \num{sweep/lit/yang/betalo}--\num{sweep/lit/yang/betahi} & & & \\
+\midrule
+\emph{steeper than term} & \num{sweep/lit/term/alphasteeper}
+  & \num{sweep/lit/term/betasteeper} & & & \\
+\emph{steeper than English} & \num{sweep/lit/nl/alphasteeper}
+  & \num{sweep/lit/nl/betasteeper} & & & \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\input{figures/sweep_laws/body}
+\caption{The sweep, drawn: measured cells (markers) against the fitted law
+(lines), \(H_{\mathrm{value}}\) against delivered \(D\), one colour per model
+size --- the same seven architectures in every panel, \(0.1\)--\(159.3\)M
+non-embedding parameters.  A curve's slope is \(\beta\); the spacing between
+curves is \(\alpha\).  On surface Lean and English the markers sit on their
+lines.  \emph{The term panel is not a plotting fault.}  Its law flattens where
+its measurements keep falling --- at the two smallest sizes the fitted
+\(A n^{-\alpha}\) term dominates, so the curve levels off while the cells
+descend past it --- and at the largest \(D\) the law sits above every cell.
+That is the \num{sweep/term/relrms}\% of \cref{tab:laws} in picture form, and
+it is what a wrong functional form looks like: the misses are ordered by rung,
+not scattered.  Curves are drawn only over each arm's measured \(D\) range; the
+law is never extrapolated.}
+\label{fig:sweeplaws}
+\end{figure}
+
+\emph{Three readings, in decreasing order of how much they are worth.}
+The ordering \(\beta_{\mathrm{term}} > \beta_{\mathrm{NL}} >
+\beta_{\mathrm{surface}}\) matches the \(\alpha\) ordering, which was not
+predicted and is not evidence for anything the registration asked.
+The three posteriors are all far tighter than the priors they started from
+(\(\num{sweep/term/betashrink}\), \(\num{sweep/surf/betashrink}\) and
+\(\num{sweep/nl/betashrink}\) of the prior width), so all three are
+measurements rather than priors read back --- which is worth saying because a
+superseded prior on this same arm returned exactly that.
+And term's \(\beta\) is \emph{not} the steepest in this literature:
+\num{sweep/lit/term/betasteeper} of the \num{sweep/lit/count} published fits
+are steeper, all of them programming languages from
+\citet{yang2026codescaling}, whose range is also what centres term's own
+prior.
+Its \(\alpha\), by contrast, is the steepest of the set --- the same count is
+\num{sweep/lit/term/alphasteeper} --- though not by a margin the interval
+resolves: the two nearest published exponents, Go at
+\num{sweep/lit/yang2026codescaling_go/alpha} and JavaScript at
+\num{sweep/lit/yang2026codescaling_javascript/alpha}, both lie inside term's
+own \(90\%\) interval.
+\emph{Both statements come with the same caveat, and on \(\beta\) it is the
+larger one.}
+This grid varies \(D\) at fixed tokens-per-update, so the three data rungs are
+also three update counts and \(\beta\) is a joint tokens-and-optimisation
+exponent on every arm;
+it may be set against a published \(\beta\) only in so far as that study's data
+axis is collinear the same way, and no extrapolation in \(D\) is licensed,
+because extrapolating \(D\) here extrapolates the step count with it.
+Term's row carries a second warning that the other two do not:
+its law misses its own cells by \num{sweep/term/relrms}\% against
+\num{sweep/surf/relrms}\% and \num{sweep/nl/relrms}\%, so its \(\beta\) is what
+a forced Chinchilla fit returns on a channel measured outside the family, not
+that channel's data exponent.
+
+\subsection{E2 --- the matched per-theorem accounting}
+\label{sec:experiments:cap}
+
+The second instrument prices the same quantity with one model per channel rather
+than a grid, in two stages.
+
+\paragraph{The gate.}
+Before committing training compute we run the comparison at small scale under
+the \emph{stock} base model with no fine-tuning:
+\(200\) matched pairs, conditioned identically, per-theorem cross-entropy on
+both channels.
+The language side is scored under a \emph{ladder} of open-weights scorers rather
+than one model, in bits per byte over the identical detokenised stream, under a
+prompt pre-registered before scoring, because every degree of freedom in the
+prompt inflates \(\CE_{\mathrm{NL}}\) in the direction that flatters the paper.
+The ladder makes the misfit auditable:
+cross-entropy differences identify KL differences exactly, so each rung
+certifies a residual reported alongside the gap.
+We proceed to the arms only if the gap has the predicted sign under the
+strongest scorer and the formal share is below one half;
+if either fails, this paper reports the instrument, the population audit and the
+negative result.
+The gate costs a few GPU-hours; the arms it gates cost weeks.
+
+\paragraph{The arms.}
+Three arms, one base model, one theorem set, the protocol of
+\cref{sec:method:protocol}:
+the language arm fine-tuned to produce the worked solution, the surface arm the
+proof-assistant source, the term arm the serialised kernel term, each
+conditioned on the byte-identical English statement.
+We publish the length ledger the gap must clear on the same set, because the
+formal channel is the \emph{longer} encoding and the comparison is only
+interesting because of it.
+On this population we can also price the one noise term that is counted rather
+than inferred:
+the freedom in \emph{which} accepted term realises a goal
+(\cref{sec:method:identity}).
+
+\tbm{E2: per-theorem cross-entropy per arm --- median, quartiles and bootstrap
+CIs on the pre-declared primary estimand, on the proof-type human-authored
+stratum, other strata separately --- with each arm's learning curve and stopping
+point, the scorer-ladder table with certified pairwise misfit residuals, the
+formal-to-language length ratios by question type, and the sampled accept-set
+entropy with its censoring above \(\log k\) stated; instrument: the three
+fine-tuning runs, the single scoring routine of \cref{sec:method:protocol}, and
+the sampling harness with the kernel as accept oracle}
+
+\paragraph{What this comparison is, and is not.}
+Translating a natural-language proof into a kernel term is not an
+information-preserving recoding:
+the language proof omits steps a formal proof must supply, and the formal proof
+omits motivation the language proof carries.
+This is an accounting of two learning problems over one theorem set, not a
+recoding theorem.
+The direction matters:
+a channel that must supply \emph{more} detail and still costs \emph{fewer} nats
+is the interesting case, and it is the case we predict.
+
+\subsection{E3 --- rebuilding the entropy comparison}
+\label{sec:experiments:fig3}
+
+The predecessor to this work reported a histogram comparing per-position
+predictive entropy on serialised kernel terms against natural-language corpora,
+and three reviewers and the area chair independently named it its strongest
+evidence.
+It is not a matched comparison.
+Seven mismatches, in descending order of how much each alone could explain the
+gap:
+(1) \textbf{task asymmetry} --- formal positions conditioned on the full goal
+type, language positions unconditioned next-token prediction on running text;
+(2) \textbf{no fine-tuning on the language side}, whose bars came from an
+off-the-shelf model while the formal bar came from a model trained on its
+channel;
+(3) \textbf{different models entirely}, of different sizes;
+(4) \textbf{a mislabelled corpus} --- the bar reported as ``arXiv abstracts''
+was drawn from a dataset whose only text field is the full paper body, the
+requested abstract field not existing;
+(5) \textbf{a mis-attributed checkpoint} --- captioned as from-scratch, but the
+recovered run record shows a warm-started configuration;
+(6) \textbf{unverified holdout} --- the training pack and the pack the entropy
+was read from are different artefacts, the latter flagged degenerate in the
+project's own records;
+and (7) \textbf{a non-random sample} --- the first \(4{,}000\) rows in pack
+order, which is blocked by source corpus.
+The quantity was also not what the surrounding text implied:
+predictive entropy \(H(p_t)\) never reads the target token, so it measures model
+confidence rather than loss.
+We rebuild it at the current pin as a matched measurement:
+one base model, both channels fine-tuned on their own data to comparable
+convergence, both scored as conditional generation given the same statement,
+sampled uniformly, with the quantity stated explicitly.
+
+\todoFIG{HEADLINE. Per-theorem cost across the three arms on one nats axis:
+distributions, not bars, with the length ledger alongside so the reader sees the
+formal channel paying more tokens for fewer nats. The three fitted floors of E1,
+converted per theorem, are marked on the same axis --- both instruments in one
+picture. The scorer ladder overlays the language arm as a band with its
+certified residuals annotated, and a non-neural compression floor is printed so
+that ``low'' has a reference point that is not another model.}
+
+\subsection{E4 --- the free-running arm, as robustness}
+\label{sec:experiments:freerun}
+
+Every measurement above is teacher-forced on a fixed corpus.
+As a robustness leg we re-run the accounting on the model's \emph{own}
+distribution:
+sampling from \(\pi_\theta\) makes \(\KL{P}{\pi_\theta} = 0\) by construction and
+\(H_\theta(\mathrm{NL})\) an ordinary Monte-Carlo expectation, with the paired
+formal side supplied by a statement autoformaliser \(\phi\) from
+\cref{tab:roster};
+this also answers a standing objection to the predecessor, that every
+measurement in it was teacher-forced.
+Three caveats are printed with the leg rather than left for a reviewer.
+The estimand changes --- this arm measures one model's output distribution, not
+the corpus limit, so it cannot carry the headline.
+\(H_\theta\) is gameable downward and can collapse, so we report across
+temperatures with a degeneracy check.
+And \(\phi\) selects, because rows where it fails or the kernel rejects are
+dropped and the selection is on formalisability, exactly the variable under
+study, so we report the drop rate and the bound on both the kept and the full
+set.
+\(\phi\) supplies the paired formal side; it does not tighten the inequality.
+
+\tbm{free-running outcome: \(H_\theta\) across temperatures with degeneracy
+diagnostics, the autoformalisation drop rate, and the bound on the kept and the
+full set; instrument: the sampling harness over the trained arms, the
+autoformaliser of \cref{tab:roster}, and the kernel checker}
+
+\subsection{Threats to validity}
+\label{sec:experiments:threats}
+
+\emph{The population is selected, and we publish the cascade.}
+Every stage of the join removes rows, and the removals are not random with
+respect to difficulty.
+
+\emph{Contamination has no internal alarm.}
+The English side of every roster corpus is public and inside open pretraining
+mixes, so a scorer can have memorised held-out rows;
+memorisation drives a measured \(\CE\) below \(H\) and voids \cref{eq:cehkl}
+silently, and no statistic computed from the scorer alone detects it.
+The near-duplicate scan of R7 is the mitigation and cannot be a proof for a
+closed pretraining mix.
+The nats cap is unaffected; the absolute reading and the fraction are what
+contamination can bias.
+
+\emph{Censoring, and a conditioning we inherit.}
+The loss side is blind above the context cap, where the reference cannot be
+represented and its cross-entropy is undefined.
+On the current evaluation split this is severe:
+the split contains essentially no witnesses at the cap, so it is conditioned on
+short proofs and every per-theorem number inherits that conditioning.
+\tbm{over-cap fraction of the library against that of the evaluation split, and
+the excluded mass; instrument: the witness-length census re-run with the
+serialiser the tokenizer is paired with}
+
+\emph{One arm's resampling distribution is bimodal, and a pooled interval hides
+it.}
+On the English arm a minority of resamples land in a basin where both exponents
+collapse to zero and the amplitude terms absorb the data.
+Pooling them with the principal mode produces an interval about four times the
+Laplace posterior's, wide enough to overlap surface and to look like ordinary
+uncertainty at any quantile summary;
+the modes are separated by a range containing no draws at all.
+We report the better-fitting mode, which reproduces the Laplace interval
+closely.
+\emph{Better-fitting, not more populous}: the two criteria happen to agree on
+the English arm and disagree on the term arm, where the majority solution is
+the poorer fit, so a rule that ranked modes by how many draws they hold would
+have named the wrong one there.
+The same check found the term arm bimodal as well, on a different pair of
+solutions, and the surface arm unimodal --- which is why surface is the arm on
+which the two interval routes agree, and why it serves as the control here
+rather than only in the ordering.
+One coincidence we report without explaining: the rejected mode on both bimodal
+arms sits at the same exponent to the precision we quote
+(\num{sweep/nl/bootmode2alpha} and \num{sweep/term/bootmode2alpha}), on
+different data and with different second parameters and fit qualities.
+It may be an artefact of the optimiser under a flat prior rather than anything
+about the channels;
+we have not established which, and it bears on nothing above.
+We found all of this by plotting the resampling distributions rather than
+summarising them;
+every quantile summary involved was correct and none of them showed it.
+The refutation does not rest on any of this: the priors point \emph{toward} the
+inequality we refute, and dropping them widens the gap rather than closing it.
+
+\emph{One pin, one base model, one seed.}
+Every distributional statement here is about that configuration;
+the pin and the snapshot are recorded in \cref{app:ledger}.
