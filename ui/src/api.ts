@@ -69,12 +69,16 @@ export type LogEvent = {
   ts: number
 }
 
-export type CompileResult = {
-  ok: boolean
-  pdf: string | null
-  errors: string[]
-  undefined: string[]
-  log_tail: string
+/** A long job's state. `ok`/`errors` are only present once state is "done". */
+export type Work = {
+  state: 'idle' | 'running' | 'done' | 'failed'
+  elapsed_seconds: number | null
+  error?: string
+  ok?: boolean
+  pdf?: string | null
+  errors?: string[]
+  undefined?: string[]
+  log_tail?: string
 }
 
 export type SyncResult = {
@@ -141,15 +145,18 @@ export const api = {
 
 
   compile: (sessionId?: string) =>
-    json<CompileResult>('/api/compile', {
+    json<Work>('/api/compile', {
       method: 'POST',
       body: JSON.stringify(sessionId ? { session_id: sessionId } : {}),
     }),
+  compileStatus: (sessionId?: string) =>
+    json<Work>('/api/compile' + (sessionId ? `?session_id=${sessionId}` : '')),
   review: (sessionId: string) =>
-    json<CompileResult>('/api/review', {
+    json<Work>('/api/review', {
       method: 'POST',
       body: JSON.stringify({ session_id: sessionId }),
     }),
+  reviewStatus: (sessionId: string) => json<Work>(`/api/review?session_id=${sessionId}`),
 }
 
 /** Apply a set of accepted change ids to the ops, giving the whole file. */

@@ -65,21 +65,31 @@ export default function App() {
   }
 
   return (
-    <PanelGroup
-      autoSaveId="galley-outer"
-      direction="horizontal"
-      className={`app${resizing ? ' resizing' : ''}`}
-    >
+    <div className="ide">
+      <header className="toolbar">
+        <span className="brand">Galley</span>
+        <span className="project">
+          {config ? config.paper_repo.split('/').slice(-1)[0] : '…'}
+        </span>
+        <span className="meta mono">{config?.main_branch ?? ''}</span>
+        <span className="spacer" />
+        <span className="meta">{config?.overleaf ?? ''}</span>
+        {!pdfOpen && (
+          <button className="tiny" onClick={togglePdf}>
+            Show PDF
+          </button>
+        )}
+      </header>
+
+      <PanelGroup
+        autoSaveId="galley-outer"
+        direction="horizontal"
+        className={`ide-body${resizing ? ' resizing' : ''}`}
+      >
       {/* -- sessions rail -------------------------------------------- */}
       <Panel id="rail" order={1} defaultSize={19} minSize={12} maxSize={34}>
         <aside className="rail">
-          <header>
-            <h1>Galley</h1>
-            <div className="sub">
-              {config ? config.paper_repo.split('/').slice(-1)[0] : '…'} ·{' '}
-              {config?.main_branch ?? '…'} · {config?.bind ?? ''}
-            </div>
-          </header>
+          <div className="rail-head">Sessions</div>
 
           <div className="new-session">
             <textarea
@@ -162,12 +172,7 @@ export default function App() {
               </button>
             ))}
             <span className="spacer" />
-            {session && <span className="muted small branch">{session.branch}</span>}
-            {!pdfOpen && (
-              <button className="tiny" onClick={togglePdf} title="Show the PDF">
-                Show PDF ›
-              </button>
-            )}
+            {session && <span className="branch">{session.branch}</span>}
           </nav>
 
           <div className="pane">
@@ -193,22 +198,23 @@ export default function App() {
 
       {/* -- right: the PDF, always there ----------------------------- */}
       <Panel
-        id="pdf"
-        order={3}
-        ref={pdfPanel}
-        defaultSize={42}
-        minSize={20}
-        collapsible
-        collapsedSize={0}
-        onCollapse={() => setPdfOpen(false)}
-        onExpand={() => setPdfOpen(true)}
-      >
-        <PdfPane
-          sessionId={session?.id ?? null}
-          latexdiffAvailable={config?.latexdiff ?? false}
-          onCollapse={togglePdf}
-        />
-      </Panel>
-    </PanelGroup>
+          id="pdf"
+          order={3}
+          ref={pdfPanel}
+          defaultSize={42}
+          minSize={20}
+          collapsible
+          collapsedSize={0}
+          onCollapse={() => setPdfOpen(false)}
+          onExpand={() => setPdfOpen(true)}
+        >
+          <PdfPane
+            sessionId={session?.id ?? null}
+            latexdiffAvailable={config?.latexdiff ?? false}
+            onCollapse={togglePdf}
+          />
+        </Panel>
+      </PanelGroup>
+    </div>
   )
 }

@@ -1,12 +1,14 @@
-import { useState } from 'react'
-import { api, type CompileResult } from '../api'
+import { useEffect, useRef, useState } from 'react'
+import { api, type Work } from '../api'
+
+type Mode = 'accepted' | 'branch' | 'review'
 
 /**
  * The right-hand pane: the paper as it will look in print, always on screen.
  *
- * Two views of the same change. The merge pane beside it catches wording; the
- * marked-up latexdiff PDF catches meaning — a claim that got quietly
- * strengthened while every individual sentence looked reasonable.
+ * Both builds run on the server and are polled rather than awaited — latexmk
+ * takes tens of seconds on a real paper and latexdiff takes minutes, which is
+ * far too long to hold a request open.
  */
 export default function PdfPane({
   sessionId,
@@ -17,25 +19,52 @@ export default function PdfPane({
   latexdiffAvailable: boolean
   onCollapse: () => void
 }) {
-  const [result, setResult] = useState<CompileResult | null>(null)
-  const [mode, setMode] = useState<'accepted' | 'branch' | 'review'>('accepted')
-  const [busy, setBusy] = useState(false)
+  const [work, setWork] = useState<Work | null>(null)
+  const [mode, setMode] = useState<Mode>('accepted')
   const [stamp, setStamp] = useState(0)
+  const poll = useRef<number | null>(null)
 
-  async function run(which: 'accepted' | 'branch' | 'review') {
-    setBusy(true)
+  function stopPolling() {
+    if (poll.current) window.clearInterval(poll.current)
+    poll.current = null
+  }
+  useEffect(() => stopPolling, [])
+
+  async function run(which: Mode) {
     setMode(which)
+    stopPolling()
+    const kick = () =>
+      which === 'review' && sessionId
+        ? api.review(sessionId)
+        : api.compile(which === 'branch' && sessionId ? sessionId : undefined)
+    const check = () =>
+      which === 'review' && sessionId
+        ? api.reviewStatus(sessionId)
+        : api.compileStatus(which === 'branch' && sessionId ? sessionId : undefined)
+
     try {
-      if (which === 'review' && sessionId) setResult(await api.review(sessionId))
-      else setResult(await api.compile(which === 'branch' && sessionId ? sessionId : undefined))
-      setStamp(Date.now())
+      const first = await kick()
+      setWork(first)
+      if (first.state !== 'running') return setStamp(Date.now())
+      poll.current = window.setInterval(async () => {
+        try {
+          const next = await check()
+          setWork(next)
+          if (next.state !== 'running') {
+            stopPolling()
+            setStamp(Date.now())
+          }
+        } catch (e) {
+          stopPolling()
+          setWork({ state: 'failed', elapsed_seconds: null, error: String(e) })
+        }
+      }, 2000)
     } catch (e) {
-      setResult({ ok: false, pdf: null, errors: [String(e)], undefined: [], log_tail: '' })
-    } finally {
-      setBusy(false)
+      setWork({ state: 'failed', elapsed_seconds: null, error: String(e) })
     }
   }
 
+  const busy = work?.state === 'running'
   const src =
     mode === 'review' && sessionId
       ? `/api/pdf?session_id=${sessionId}&review=true&t=${stamp}`
@@ -73,38 +102,56 @@ export default function PdfPane({
             title={
               !latexdiffAvailable
                 ? 'latexdiff is not installed'
-                : 'Marked up: accepted state against this branch'
+                : 'Marked up: accepted state against this branch. Takes a few minutes.'
             }
           >
             Marked up
           </button>
         </div>
         <span className="spacer" />
-        {busy && <span className="muted small">latexmk…</span>}
-        {!busy && result?.ok && <span className="muted small">built</span>}
+        {busy && (
+          <span className="muted small">
+            {mode === 'review' ? 'latexdiff' : 'latexmk'} · {work?.elapsed_seconds ?? 0}s
+          </span>
+        )}
+        {!busy && work?.state === 'done' && work.ok && (
+          <span className="muted small">built in {work.elapsed_seconds}s</span>
+        )}
       </header>
 
       <div className="pdf-body">
-        {result && !result.ok && (
-          <div className="notice bad">
-            <strong>Compile failed.</strong>
-            <pre style={{ marginTop: 6 }}>{result.errors.join('\n')}</pre>
+        {busy && mode === 'review' && (
+          <div className="notice warn">
+            latexdiff flattens and compares the whole paper, which takes a few
+            minutes on one this size. It keeps going if you look away.
           </div>
         )}
-        {result?.undefined.length ? (
+        {work?.state === 'failed' && (
+          <div className="notice bad">
+            <strong>Could not build.</strong>
+            <pre style={{ marginTop: 6 }}>{work.error}</pre>
+          </div>
+        )}
+        {work?.state === 'done' && !work.ok && (
+          <div className="notice bad">
+            <strong>Compile failed.</strong>
+            <pre style={{ marginTop: 6 }}>{(work.errors ?? []).join('\n')}</pre>
+          </div>
+        )}
+        {work?.undefined?.length ? (
           <div className="notice warn">
-            Undefined references: <span className="mono">{result.undefined.join(', ')}</span>
+            Undefined references: <span className="mono">{work.undefined.join(', ')}</span>
           </div>
         ) : null}
 
-        {result?.ok ? (
+        {work?.state === 'done' && work.ok ? (
           <iframe className="pdf" src={src} title="paper" />
         ) : (
-          !result && (
+          !work && (
             <div className="empty">
               Compile to see the paper.
               <div style={{ marginTop: 10 }}>
-                <button className="primary" onClick={() => run('accepted')} disabled={busy}>
+                <button className="primary" onClick={() => run('accepted')}>
                   Compile
                 </button>
               </div>

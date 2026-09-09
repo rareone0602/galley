@@ -25,6 +25,7 @@ from .segment.diff import diff_text
 from .segment.tokenizer import segment
 from .services import git, latex, overleaf, worktree
 from .services.agent import AgentService, SessionLimitReached
+from .services.work import WorkTable
 
 UI_DIST = Path(__file__).resolve().parent.parent / "ui" / "dist"
 
@@ -34,6 +35,7 @@ def create_app(cfg: Config | None = None) -> FastAPI:
     db = Database(cfg.db_path)
     bus = EventBus()
     agents = AgentService(cfg, db, bus)
+    work = WorkTable()
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -42,11 +44,13 @@ def create_app(cfg: Config | None = None) -> FastAPI:
         try:
             yield
         finally:
+            await work.shutdown()
             await agents.shutdown()
             db.close()
 
     app = FastAPI(title="Galley", version="0.1.0", lifespan=lifespan)
-    app.state.cfg, app.state.db, app.state.bus, app.state.agents = cfg, db, bus, agents
+    app.state.cfg, app.state.db, app.state.bus = cfg, db, bus
+    app.state.agents, app.state.work = agents, work
 
     # -- configuration ----------------------------------------------------
 
@@ -266,32 +270,59 @@ def create_app(cfg: Config | None = None) -> FastAPI:
 
     # -- LaTeX ------------------------------------------------------------
 
-    @app.post("/api/compile")
-    def compile_paper(body: dict = Body(default={})) -> dict:
-        session_id = body.get("session_id")
-        repo = cfg.paths.paper_repo
-        outdir = cfg.paths.state_dir / "build"
+    # latexmk takes tens of seconds on a real paper and latexdiff takes
+    # minutes, so both are started rather than awaited. POST kicks one off (or
+    # joins one already running); GET says how it is getting on.
+
+    def _compile_job(session_id: str | None):
+        repo, outdir = cfg.paths.paper_repo, cfg.paths.state_dir / "build"
         if session_id:
             row = db.get_session(session_id)
             if row is None:
                 raise HTTPException(404, f"no session {session_id}")
             repo = Path(row["worktree_path"])
             outdir = cfg.paths.state_dir / "build" / session_id
-        return latex.compile_pdf(repo, cfg.paper.main_tex, outdir).as_dict()
+        return lambda: latex.compile_pdf(repo, cfg.paper.main_tex, outdir).as_dict()
 
-    @app.post("/api/review")
-    def latexdiff_review(body: dict = Body(...)) -> dict:
-        """The second review surface: the change as it will appear in print."""
-        session_id = body.get("session_id")
-        row = db.get_session(session_id) if session_id else None
+    def _review_job(session_id: str):
+        row = db.get_session(session_id)
         if row is None:
             raise HTTPException(404, f"no session {session_id}")
-        return latex.latexdiff_pdf(
+        worktree_path = Path(row["worktree_path"])
+        changed = [
+            f["path"]
+            for f in git.changed_files(cfg.paths.paper_repo, cfg.paper.main_branch, row["branch"])
+        ]
+        return lambda: latex.latexdiff_pdf(
             cfg.paths.paper_repo,
-            Path(row["worktree_path"]),
+            worktree_path,
             cfg.paper.main_tex,
             cfg.paths.state_dir / "review" / session_id,
+            changed=changed,
         ).as_dict()
+
+    # async, not sync: a sync route runs in a worker thread, where starting the
+    # background task raises "no running event loop".
+    @app.post("/api/compile")
+    async def compile_paper(body: dict = Body(default={})) -> dict:
+        session_id = body.get("session_id")
+        return work.start(f"compile:{session_id or 'main'}", _compile_job(session_id))
+
+    @app.get("/api/compile")
+    def compile_status(session_id: str | None = None) -> dict:
+        return work.state(f"compile:{session_id or 'main'}")
+
+    @app.post("/api/review")
+    async def latexdiff_review(body: dict = Body(...)) -> dict:
+        """The second review surface: the change as it will appear in print."""
+        session_id = body.get("session_id")
+        if not session_id:
+            raise HTTPException(400, "a review needs a session")
+        return work.start(f"review:{session_id}", _review_job(session_id))
+
+    @app.get("/api/review")
+    def review_status(session_id: str) -> dict:
+        return work.state(f"review:{session_id}")
 
     @app.get("/api/pdf")
     def read_pdf(session_id: str | None = None, review: bool = False):

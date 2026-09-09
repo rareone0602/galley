@@ -260,3 +260,94 @@ async def test_a_session_whose_worktree_vanished_stops_being_listed(client, conf
     with TestClient(create_app(config)) as fresh:
         listed = [s["id"] for s in fresh.get("/api/sessions").json() if s["status"] != "removed"]
         assert row["id"] not in listed
+
+
+# -- long jobs run in the background --------------------------------------
+#
+# Everything that starts one must be reached from an async route: a sync route
+# runs in a worker thread, where asyncio.create_task raises "no running event
+# loop". That bug shipped twice, so every such endpoint is exercised here.
+
+
+async def test_compile_starts_in_the_background_and_reports_progress(client, monkeypatch) -> None:
+    import galley.services.latex as latex
+
+    monkeypatch.setattr(
+        latex, "compile_pdf", lambda *a, **k: latex.CompileResult(True, None, [], [], "")
+    )
+    started = client.post("/api/compile", json={}).json()
+    assert started["state"] in ("running", "done")
+
+    for _ in range(50):
+        state = client.get("/api/compile").json()
+        if state["state"] != "running":
+            break
+        await asyncio.sleep(0.05)
+    assert state["state"] == "done"
+    assert state["ok"] is True
+    assert state["elapsed_seconds"] is not None
+
+
+async def test_review_starts_in_the_background(client, monkeypatch) -> None:
+    import galley.services.latex as latex
+
+    monkeypatch.setattr(
+        latex, "latexdiff_pdf", lambda *a, **k: latex.CompileResult(True, None, [], [], "")
+    )
+    row = client.post("/api/sessions", json={"prompt": "review me", "start": False}).json()
+    started = client.post("/api/review", json={"session_id": row["id"]}).json()
+    assert started["state"] in ("running", "done")
+
+    for _ in range(50):
+        state = client.get(f"/api/review?session_id={row['id']}").json()
+        if state["state"] != "running":
+            break
+        await asyncio.sleep(0.05)
+    assert state["state"] == "done"
+
+
+async def test_a_failing_job_is_reported_not_swallowed(client, monkeypatch) -> None:
+    import galley.services.latex as latex
+
+    def explode(*_a, **_k):
+        raise RuntimeError("latexmk is not installed")
+
+    monkeypatch.setattr(latex, "compile_pdf", explode)
+    client.post("/api/compile", json={})
+    for _ in range(50):
+        state = client.get("/api/compile").json()
+        if state["state"] != "running":
+            break
+        await asyncio.sleep(0.05)
+    assert state["state"] == "failed"
+    assert "latexmk is not installed" in state["error"]
+
+
+async def test_asking_twice_joins_the_run_already_going(client, monkeypatch) -> None:
+    """A second click must not start a second latexmk over the same output."""
+    import time
+
+    import galley.services.latex as latex
+
+    calls = []
+
+    def slow(*_a, **_k):
+        calls.append(1)
+        time.sleep(0.4)
+        return latex.CompileResult(True, None, [], [], "")
+
+    monkeypatch.setattr(latex, "compile_pdf", slow)
+    client.post("/api/compile", json={})
+    await asyncio.sleep(0.05)
+    second = client.post("/api/compile", json={}).json()
+    assert second["state"] == "running"
+
+    for _ in range(60):
+        if client.get("/api/compile").json()["state"] != "running":
+            break
+        await asyncio.sleep(0.05)
+    assert len(calls) == 1
+
+
+def test_a_review_needs_a_session(client) -> None:
+    assert client.post("/api/review", json={}).status_code == 400
