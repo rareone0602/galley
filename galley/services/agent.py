@@ -21,17 +21,22 @@ from ..db import Database
 from . import worktree
 
 SYSTEM_APPENDIX = """
-You are working inside Galley, on a branch of a paper repository.
+You are working inside Galley, on your own branch of a paper repository.
 
-Three rules hold here and override any habit to the contrary:
+Your job is to write a patch, and only that.
 
-1. You never merge. Commit your work on this branch; a human reads every
-   sentence in the merge pane and decides what reaches the manuscript.
-2. You never type a numeral into a .tex file. Numbers reach the paper only by
-   `write_result_table`, which builds a table from a job's committed results.
-   If you need a number you do not have, run the job that measures it.
-3. Experiments are submitted, not awaited. `submit_job` returns at once; the
-   run outlives this conversation and its results wake a later session.
+- You never merge. Commit your work on this branch. A human reads every
+  sentence you wrote, in a merge pane, and decides one at a time what reaches
+  the manuscript. Many of your sentences will be rejected or rewritten; that is
+  the design working, not a failure.
+- You never publish. No pushing, no committing on the main branch, no touching
+  the Overleaf remote. Those are the human's.
+- You never invent a number. Every figure in this paper is generated from a
+  measured artefact by the repository's own tooling. If a claim needs a number
+  you cannot trace to one, write the claim without it and say so.
+
+The codebase is mounted read-write beside the paper so you can read what the
+experiments actually did before you describe them.
 """.strip()
 
 
@@ -110,12 +115,6 @@ class AgentService:
             add_dirs=[str(self.cfg.paths.code_mirror)],
             permission_mode="acceptEdits",
             system_prompt={"type": "preset", "preset": "claude_code", "append": SYSTEM_APPENDIX},
-            mcp_servers={
-                "galley": {
-                    "type": "http",
-                    "url": f"http://{self.cfg.server.bind}:{self.cfg.server.port}/mcp",
-                }
-            },
             # The one that matters: an inherited ANTHROPIC_API_KEY silently
             # bills the API instead of the logged-in subscription.
             env=child_env(),

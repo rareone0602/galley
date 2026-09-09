@@ -16,19 +16,7 @@ PAPER = """\\documentclass{article}
 We evaluate on three benchmarks (\\S4.1).
 The model improves over the baseline by a large margin across all settings.
 We ablate the retrieval component in Table~\\ref{tab:ablation}.
-\\input{tables/ablation}
 \\end{document}
-"""
-
-SPEC = """{
-  "caption": "Ablation of the retrieval component.",
-  "label": "tab:ablation",
-  "columns": [
-    {"header": "Run", "path": "$.note"},
-    {"header": "CE", "path": "eval.ce", "format": ".4f"},
-    {"header": "Steps", "path": "train.steps"}
-  ]
-}
 """
 
 
@@ -41,12 +29,11 @@ def _git(repo: Path, *args: str) -> str:
 @pytest.fixture
 def paper_repo(tmp_path: Path) -> Path:
     repo = tmp_path / "paper"
-    (repo / "tables").mkdir(parents=True)
+    repo.mkdir(parents=True)
     _git(repo.parent, "init", "-q", "-b", "main", str(repo))
     _git(repo, "config", "user.email", "test@localhost")
     _git(repo, "config", "user.name", "Test")
     (repo / "main.tex").write_text(PAPER)
-    (repo / "tables" / "ablation.spec.json").write_text(SPEC)
     _git(repo, "add", "-A")
     _git(repo, "commit", "-qm", "initial")
     return repo
@@ -76,11 +63,6 @@ def config(tmp_path: Path, paper_repo: Path, code_mirror: Path):
 paper_repo    = "{paper_repo}"
 code_mirror   = "{code_mirror}"
 state_dir     = "{tmp_path / 'state'}"
-artifacts_dir = "{tmp_path / 'artifacts'}"
-
-[cluster]
-backend = "gpuq"
-scratch = "{tmp_path / 'scratch'}"
 
 [paper]
 main_branch     = "main"
@@ -101,9 +83,7 @@ def client(config):
 
     from galley.app import create_app
 
-    # The MCP transport refuses a Host it is not bound to, so the test client
-    # must speak to it the way a real client does.
-    with TestClient(create_app(config), base_url="http://127.0.0.1:8124") as c:
+    with TestClient(create_app(config)) as c:
         yield c
 
 

@@ -1,7 +1,9 @@
-"""The Galley backend: one FastAPI app that is also the agent's tool surface.
+"""The Galley backend.
 
-Routes are grouped the way the UI uses them: sessions and their live log, the
-diff and the write-back, git and the Overleaf sync, jobs, and the PDF.
+One job: let Claude propose a patch on its own branch, and let you accept it a
+sentence at a time. Everything downstream of that — committing, pushing to
+Overleaf, compiling — is yours, and the routes for it are here because they are
+the things you do while reviewing, not because an agent touches them.
 """
 
 from __future__ import annotations
@@ -15,103 +17,37 @@ from pathlib import Path
 from fastapi import Body, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from starlette.types import Receive, Scope, Send
 
-from . import mcp_server
 from .bus import EventBus
 from .config import Config, load
 from .db import Database
 from .segment.diff import diff_text
 from .segment.tokenizer import segment
-from .services import git, latex, overleaf, results, worktree
+from .services import git, latex, overleaf, worktree
 from .services.agent import AgentService, SessionLimitReached
-from .services.jobs import JobService, handoff_prompt
-from .services.scheduler.base import QueueRefused, Resources
-from .services.scheduler.gpuq import GpuqScheduler
 
 UI_DIST = Path(__file__).resolve().parent.parent / "ui" / "dist"
-
-
-class McpDispatch:
-    """Put the agent's tool surface at exactly `/mcp`, before routing happens.
-
-    Mounting would not do: a Starlette mount at `/mcp` only matches `/mcp/...`,
-    so the bare `/mcp` the design specifies would fall through to the static
-    file mount and come back 405. Dispatching in front of the router hands that
-    one path straight to the MCP app and leaves everything else untouched.
-    """
-
-    def __init__(self, app, mcp_app, path: str = "/mcp") -> None:
-        self.app = app
-        self.mcp_app = mcp_app
-        self.path = path
-
-    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] == "http" and scope.get("path", "").rstrip("/") == self.path:
-            scope = {**scope, "path": self.path, "raw_path": self.path.encode()}
-            await self.mcp_app(scope, receive, send)
-            return
-        await self.app(scope, receive, send)
-
-
-def build_scheduler(cfg: Config):
-    if cfg.cluster.backend == "gpuq":
-        return GpuqScheduler(
-            tmux_prefix=cfg.cluster.tmux_prefix,
-            max_hours=cfg.cluster.max_job_hours,
-            max_queued=cfg.limits.max_queued_jobs,
-            extra_flags=cfg.cluster.submit_flags,
-        )
-    raise RuntimeError(
-        f"unknown cluster backend {cfg.cluster.backend!r}. "
-        "The only backend implemented is 'gpuq'."
-    )
 
 
 def create_app(cfg: Config | None = None) -> FastAPI:
     cfg = cfg or load()
     db = Database(cfg.db_path)
     bus = EventBus()
-    scheduler = build_scheduler(cfg)
-    jobs = JobService(cfg, db, bus, scheduler)
     agents = AgentService(cfg, db, bus)
-    mcp = mcp_server.build(cfg, db, jobs)
-    # DNS-rebinding protection: the tool surface answers only to the host and
-    # port it is actually bound to, so a page in a browser cannot drive it.
-    from mcp.server.transport_security import TransportSecuritySettings
-
-    allowed = {
-        f"{cfg.server.bind}:{cfg.server.port}",
-        f"localhost:{cfg.server.port}",
-        f"127.0.0.1:{cfg.server.port}",
-    }
-    mcp_app = mcp.streamable_http_app(
-        streamable_http_path="/mcp",
-        stateless_http=True,
-        transport_security=TransportSecuritySettings(
-            allowed_hosts=sorted(allowed),
-            allowed_origins=sorted(f"http://{h}" for h in allowed),
-        ),
-    )
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
-        async with mcp_app.router.lifespan_context(mcp_app):
-            results.install_precommit_hook(cfg.paths.paper_repo)
-            worktree.ensure_ignored(cfg.paths.paper_repo)
-            jobs.start()
-            try:
-                yield
-            finally:
-                await jobs.stop()
-                await agents.shutdown()
-                db.close()
+        worktree.ensure_ignored(cfg.paths.paper_repo)
+        try:
+            yield
+        finally:
+            await agents.shutdown()
+            db.close()
 
     app = FastAPI(title="Galley", version="0.1.0", lifespan=lifespan)
-    app.state.cfg, app.state.db, app.state.bus = cfg, db, bus
-    app.state.jobs, app.state.agents = jobs, agents
+    app.state.cfg, app.state.db, app.state.bus, app.state.agents = cfg, db, bus, agents
 
-    # -- configuration and health ----------------------------------------
+    # -- configuration ----------------------------------------------------
 
     @app.get("/api/config")
     def read_config() -> dict:
@@ -121,10 +57,7 @@ def create_app(cfg: Config | None = None) -> FastAPI:
             "main_branch": cfg.paper.main_branch,
             "main_tex": cfg.paper.main_tex,
             "overleaf": f"{cfg.paper.overleaf_remote}/{cfg.paper.overleaf_branch}",
-            "backend": cfg.cluster.backend,
-            "scratch": str(cfg.cluster.scratch),
             "max_concurrent_sessions": cfg.limits.max_concurrent_sessions,
-            "max_queued_jobs": cfg.limits.max_queued_jobs,
             "latexdiff": latex.latexdiff_available(),
             "bind": f"{cfg.server.bind}:{cfg.server.port}",
         }
@@ -225,10 +158,7 @@ def create_app(cfg: Config | None = None) -> FastAPI:
     # -- the merge pane ---------------------------------------------------
 
     @app.get("/api/diff")
-    def read_diff(
-        session_id: str = Query(...),
-        path: str | None = Query(None),
-    ) -> dict:
+    def read_diff(session_id: str = Query(...), path: str | None = Query(None)) -> dict:
         row = db.get_session(session_id)
         if row is None:
             raise HTTPException(404, f"no session {session_id}")
@@ -237,10 +167,9 @@ def create_app(cfg: Config | None = None) -> FastAPI:
         files = [f["path"] for f in git.changed_files(repo, base, head)]
         if path is not None and path not in files:
             raise HTTPException(404, f"{path} did not change on {head}")
-        targets = [path] if path else files
 
         out = []
-        for rel in targets:
+        for rel in path and [path] or files:
             old = _read_working(repo, rel)
             new = git.show(repo, head, rel)
             ops = diff_text(old, new)
@@ -285,7 +214,6 @@ def create_app(cfg: Config | None = None) -> FastAPI:
     @app.get("/api/git/status")
     def git_status() -> dict:
         repo = cfg.paths.paper_repo
-        known = {r["id"] for r in db.list_jobs()}
         return {
             "branch": git.current_branch(repo),
             "head": git.head_sha(repo)[:10],
@@ -296,7 +224,6 @@ def create_app(cfg: Config | None = None) -> FastAPI:
             ],
             "worktrees": worktree.listing(repo),
             "log": git.log(repo, 10),
-            "unbacked_results": results.unbacked_results(repo, known),
             "overleaf": overleaf.status(cfg),
         }
 
@@ -325,87 +252,6 @@ def create_app(cfg: Config | None = None) -> FastAPI:
         if action == "abort":
             return overleaf.abort_rebase(cfg).as_dict()
         raise HTTPException(400, "action must be continue or abort")
-
-    # -- jobs -------------------------------------------------------------
-
-    @app.get("/api/jobs")
-    def list_jobs(state: str | None = None) -> list[dict]:
-        return db.list_jobs(state=state)
-
-    @app.post("/api/jobs")
-    def submit_job(body: dict = Body(...)) -> dict:
-        script = body.get("script") or ""
-        if not script.strip():
-            raise HTTPException(400, "a job needs a script")
-        try:
-            return jobs.submit(
-                script=script,
-                resources=Resources(
-                    gpus=int(body.get("gpus", 1)), hours=float(body.get("hours", 8.0))
-                ),
-                note=body.get("note", ""),
-            )
-        except QueueRefused as exc:
-            raise HTTPException(409, str(exc)) from exc
-
-    @app.get("/api/jobs/events")
-    async def job_events(request: Request):
-        async def stream():
-            async with bus.subscribe("jobs") as queue:
-                while True:
-                    if await request.is_disconnected():
-                        return
-                    try:
-                        event = await asyncio.wait_for(queue.get(), timeout=15.0)
-                    except asyncio.TimeoutError:
-                        yield ": keep-alive\n\n"
-                        continue
-                    yield _sse(event)
-
-        return StreamingResponse(stream(), media_type="text/event-stream")
-
-    @app.get("/api/jobs/{job_id}")
-    def get_job(job_id: str) -> dict:
-        row = db.get_job(job_id)
-        if row is None:
-            raise HTTPException(404, f"no job {job_id}")
-        row["tail"] = jobs.tail(job_id)
-        return row
-
-    @app.post("/api/jobs/{job_id}/fetch")
-    def fetch_job(job_id: str) -> dict:
-        try:
-            dest = jobs.fetch_artifacts(job_id)
-        except KeyError as exc:
-            raise HTTPException(404, str(exc)) from exc
-        return {"ok": True, "artifacts": str(dest), "files": sorted(p.name for p in dest.iterdir())}
-
-    @app.post("/api/jobs/{job_id}/cancel")
-    def cancel_job(job_id: str) -> dict:
-        try:
-            jobs.cancel(job_id)
-        except KeyError as exc:
-            raise HTTPException(404, str(exc)) from exc
-        return {"ok": True}
-
-    @app.post("/api/jobs/{job_id}/handoff")
-    def handoff(job_id: str) -> dict:
-        """Open a new session prompted with this job's results."""
-        row = db.get_job(job_id)
-        if row is None:
-            raise HTTPException(404, f"no job {job_id}")
-        metrics = None
-        try:
-            metrics = jobs.read_artifact(job_id, "metrics.json")
-        except (KeyError, FileNotFoundError):
-            pass
-        prompt = handoff_prompt(row, metrics, jobs.tail(job_id, 80))
-        try:
-            session = agents.create(prompt, slug=f"job-{job_id}")
-        except SessionLimitReached as exc:
-            raise HTTPException(429, str(exc)) from exc
-        agents.start(session["id"])
-        return session
 
     # -- LaTeX ------------------------------------------------------------
 
@@ -449,10 +295,6 @@ def create_app(cfg: Config | None = None) -> FastAPI:
             raise HTTPException(404, "no PDF yet; compile first")
         return FileResponse(path, media_type="application/pdf")
 
-    # -- the agent's tool surface, same process, loopback only ------------
-
-    app.add_middleware(McpDispatch, mcp_app=mcp_app)
-
     if UI_DIST.is_dir():
         app.mount("/", StaticFiles(directory=UI_DIST, html=True), name="ui")
     else:
@@ -463,8 +305,7 @@ def create_app(cfg: Config | None = None) -> FastAPI:
                 "<h1>Galley backend is up</h1>"
                 "<p>The UI has not been built. Run <code>npm install &amp;&amp; "
                 "npm run build</code> in <code>ui/</code>.</p>"
-                "<p>The API is under <code>/api</code>; the agent tool surface is "
-                "at <code>/mcp</code>.</p>"
+                "<p>The API is under <code>/api</code>.</p>"
             )
 
     return app
@@ -476,4 +317,8 @@ def _read_working(repo: Path, rel: str) -> str:
 
 
 def _sse(event: dict) -> str:
-    return f"id: {event.get('id', 0)}\nevent: {event.get('kind', 'message')}\ndata: {json.dumps(event, default=str)}\n\n"
+    return (
+        f"id: {event.get('id', 0)}\n"
+        f"event: {event.get('kind', 'message')}\n"
+        f"data: {json.dumps(event, default=str)}\n\n"
+    )

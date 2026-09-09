@@ -37,14 +37,6 @@ export default function GitPanel() {
 
   return (
     <>
-      {status.unbacked_results.length > 0 && (
-        <div className="notice warn">
-          <strong>A number appeared without a job behind it.</strong> These result files
-          name a job id Galley has never run: {status.unbacked_results.join(', ')}. Every
-          figure in the paper should trace back to a run.
-        </div>
-      )}
-
       <div className="card">
         <h3>Working tree — {status.branch} @ {status.head}</h3>
         {status.files.length === 0 ? (

@@ -1,12 +1,13 @@
 # Galley
 
-A local workbench for writing a paper with Claude, where experiments run on a
-cluster and every word that lands in the manuscript is one you accepted by hand.
+A local workbench for writing a paper with Claude, where the only thing the
+agent does is propose a patch, and every word that lands in the manuscript is
+one you accepted by hand.
 
-**Status:** implemented, M0–M6. See [`docs/architecture.html`](docs/architecture.html)
-for the design document (the [rendered version](https://claude.ai/code/artifact/8dfdd950-7dce-4647-b9de-2393e09e20b6)),
+**Status:** implemented. See [`docs/architecture.html`](docs/architecture.html)
+for the original design document (the [rendered version](https://claude.ai/code/artifact/8dfdd950-7dce-4647-b9de-2393e09e20b6)),
 and [`docs/implementation.md`](docs/implementation.md) for where the code
-departs from it and why.
+departs from it and why — including the parts that were cut.
 
 ```bash
 cp galley.example.toml galley.local.toml   # then edit the paths
@@ -20,66 +21,44 @@ uv run pytest -q
 
 ## The problem
 
-Writing a paper with an agent has three awkward seams:
+Writing a paper with an agent has two awkward seams:
 
 1. **Agents edit in place.** You want to read every prose change before it
    reaches the manuscript, not discover it later in a diff of forty files.
 2. **LaTeX defeats line diffs.** A paragraph is frequently one very long line,
    so a stock diff reports it as wholly deleted and wholly re-added.
-3. **Cluster jobs outlast conversations.** A scheduler queue is measured in
-   hours; an agent turn is measured in minutes.
 
-Galley is the smallest thing that addresses all three.
+Galley is the smallest thing that addresses both.
 
-## The five decisions
+## The four decisions
 
 | | |
 |---|---|
 | **Isolation** | One git worktree per Claude session. Claude edits and commits on `claude/<slug>` in its own checkout; your main working tree is never touched by an agent. |
 | **Diffing** | Git is the diff substrate; the UI is a view. The merge pane renders `git diff main...claude/<slug>` — no shadow copies, no bespoke patch format. |
-| **Code** | Mirror the codebase locally, execute remotely. Claude reads and edits with real Grep/Glob/Edit tools at local speed; running it is a separate act on the cluster. |
-| **Jobs** | Experiments are objects, not turns. A submitted job outlives the session that created it, and completion wakes a *new* session with results attached. |
-| **Authority** | Prose merges are manual; numbers are generated. You accept every sentence by hand and never accept a number by hand. |
+| **Scope** | The only AI part is the SDK writing a patch. Claude has its ordinary file tools inside its own worktree and nothing else — no tool server, no scheduler, no credentials. |
+| **Authority** | Merges are manual. You accept every sentence by hand, and you are free to rewrite it instead. Committing, pushing and publishing are yours alone. |
 
 ## Topology
 
 ```
-  YOUR MAC                              CLUSTER
-  ┌──────────────────────────┐          ┌────────────────────────┐
-  │ paper/                   │          │ $SCRATCH/galley/<job>/ │
-  │   main worktree — yours  │          │   checkout at pinned   │
-  │ paper/.worktrees/<slug>/ │  ssh +   │   SHA                  │
-  │   branch claude/<slug>   │◄─rsync──►│ sbatch · squeue · sacct│
-  │ code-mirror/             │          │ artifacts/             │
-  │   passed via --add-dir   │          │   metrics.json, figs   │
-  │ galley-api (FastAPI)     │          └────────────────────────┘
-  │ galley-ui  (React)       │
-  └───────────┬──────────────┘          OVERLEAF
-              │  git push (main only)   ┌────────────────────────┐
-              └────────────────────────►│ git.overleaf.com/<id>  │
-                                        │   single branch: master│
-                                        └────────────────────────┘
+  YOUR MACHINE
+  ┌────────────────────────────┐
+  │ paper/                     │
+  │   main worktree — yours    │
+  │ paper/.worktrees/<slug>/   │        OVERLEAF
+  │   branch claude/<slug>     │        ┌────────────────────────┐
+  │ code-mirror/               │  push  │ git.overleaf.com/<id>  │
+  │   read beside the paper,   │───────►│   single branch        │
+  │   passed via --add-dir     │  (main │   a second writer:     │
+  │ galley-api (FastAPI)       │   only)│   assume it drifted    │
+  │ galley-ui  (React)         │        └────────────────────────┘
+  └────────────────────────────┘
 ```
 
-No agent process runs on the cluster. The cluster is a job executor reached over
-SSH; all reasoning about code happens against the local mirror.
-
-## Async job lifecycle
-
-```
-DRAFT → SUBMITTED → PENDING → RUNNING → COMPLETED → HANDOFF
-                    (squeue)            (sacct)     (new session,
-                                                     metrics in prompt)
-```
-
-Submission returns immediately. One asyncio poller backs off by state — 30s
-while `PENDING`, 5m while `RUNNING` — and writes every transition to SQLite
-before publishing it, so a backend restart resumes cleanly. A failed job takes
-the same path with the tail of stderr substituted for metrics, into a session
-prompted to diagnose rather than to write.
-
-Because submission rsyncs a pinned commit rather than your dirty working copy,
-every artifact carries the exact SHA that produced it.
+The codebase is mirrored beside the paper so Claude can read what the
+experiments actually did — with real Grep/Glob/Read tools, at local speed —
+before it writes a sentence describing them. It cannot run them.
 
 ## Merge UX
 
@@ -96,58 +75,45 @@ each changed sentence:
 
 The tokenizer must not break on `e.g.`, `i.e.`, `et al.`, `Fig.`, `Eq.`, `cf.`,
 `vs.`, decimals, or a period inside `\cite{}`; must treat inline math as opaque;
-and must pass `%` comments and `\begin/\end` blocks through as atomic units.
-It ships standalone with fixture tests before any UI is wired to it.
+and must pass `%` comments and non-prose environments through as atomic units.
+It ships standalone with fixture tests taken from the real paper.
 
 **Partial patches are never applied.** The merge pane holds the full resulting
-buffer, so accepting hunks is a client-side edit and the backend writes the
+buffer, so accepting a sentence is a client-side edit and the backend writes the
 final text. Git computes and displays the diff; it never applies a partial one.
+Rejecting everything reproduces your file byte for byte, and accepting
+everything reproduces Claude's — both are asserted in the test suite against
+real paper sections.
 
 A second review surface catches meaning rather than wording: `latexdiff` between
 the accepted and proposed states, compiled and shown beside the merge pane.
 
-## The numbers invariant
+## Overleaf
 
-No numeral is ever typed into a `.tex` file by hand or by agent. The path is
-one-way:
-
-```
-cluster run → artifacts/metrics.json    (pulled, immutable, carries git SHA)
-            → results/<job>.json        (committed to the paper repo)
-            → tables/<name>.tex         (generated; never hand-edited)
-            → \input{tables/<name>}     (the only reference in main.tex)
-```
-
-Enforced by a pre-commit hook that rejects a diff touching `tables/` unless
-`results/` changed in the same commit.
+Treated as a dumb single-branch remote with a second writer attached, because
+that is what it is. One compound **Sync** button: refuse unless you are on the
+main branch with a clean tree, `pull --rebase`, route any conflict into the same
+sentence-level merge pane, then push. Never a force. Claude's branches stay
+local, so Overleaf only ever sees prose you already accepted.
 
 ## Stack
 
-- **Backend** — FastAPI, Python 3.11 via `uv` (the Agent SDK needs ≥3.10)
-- **Frontend** — Vite, React, TypeScript, [`@codemirror/merge`](https://github.com/codemirror/merge)
+- **Backend** — FastAPI, Python 3.11+ via `uv`
+- **Frontend** — Vite, React, TypeScript
 - **Agent** — `claude-agent-sdk`, subscription auth
-- **State** — SQLite (`sessions`, `jobs`, `events`)
+- **State** — SQLite (`sessions`, `events`)
 - **Git** — plain `subprocess` around real `git`, not GitPython or pygit2
 
 > **Subscription auth footgun.** The SDK uses your logged-in Claude credentials
 > *only* when no API key is present in the child environment. An exported
-> `ANTHROPIC_API_KEY` silently inherits and bills per-token instead. Strip it at
-> spawn and fail startup loudly if it is set.
-
-## Milestones
-
-| | | |
-|---|---|---|
-| **M0** | Environment and git service | worktree create/list/remove, status, diff |
-| **M1** | Sessions with a live log | spawn agent, SSE stream, tool-call rendering |
-| **M2** | Sentence tokenizer, standalone | pure function, fixture-tested, no UI |
-| **M3** | Merge pane | accept/reject per sentence, write-back |
-| **M4** | Job system | MCP tools, SSH submit, poller, artifact pull |
-| **M5** | Git panel and Overleaf sync | compound Sync, conflicts reuse the M3 pane |
-| **M6** | PDF preview and latexdiff review | compile-on-save, marked-up comparison |
+> `ANTHROPIC_API_KEY` silently inherits and bills per-token instead. Galley
+> strips it at spawn and fails startup loudly if it is set.
 
 ## Non-goals
 
 Galley is not an editor. No LaTeX autocomplete, no bibliography management, no
-syntax highlighting beyond the merge pane. Its only jobs are running the agent,
-merging its output, and moving bits to the cluster and Overleaf.
+syntax highlighting beyond the merge pane. It does not run experiments, own a
+scheduler, or generate your numbers — your repository already has tooling for
+that, and a second owner for a fact is worse than none. Its only jobs are
+running the agent, showing you what it proposed, and moving accepted prose to
+Overleaf.

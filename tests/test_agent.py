@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 
 import pytest
-from claude_agent_sdk.types import McpHttpServerConfig, SystemPromptPreset
+from claude_agent_sdk.types import SystemPromptPreset
 
 from galley.bus import EventBus
 from galley.config import BILLING_ENV_VARS, ConfigError, child_env, validate
@@ -64,17 +64,14 @@ def test_the_agent_is_scoped_to_its_worktree_with_the_code_mirror(agents, config
     assert opts.permission_mode == "acceptEdits"
 
 
-def test_the_mcp_server_matches_the_sdk_type_and_the_served_path(agents, config) -> None:
-    server = opts_server(agents)
-    assert set(server) <= set(McpHttpServerConfig.__annotations__)
-    assert server["type"] == "http"
-    # This is the path galley actually serves; a mount would have made it
-    # /mcp/mcp and the agent would have got no tools at all.
-    assert server["url"] == f"http://{config.server.bind}:{config.server.port}/mcp"
+def test_the_agent_gets_no_extra_tool_surface(agents) -> None:
+    """The only AI part is the SDK writing a patch.
 
-
-def opts_server(agents):
-    return _options(agents).mcp_servers["galley"]
+    Claude works with its ordinary file tools inside its own worktree. There is
+    no Galley tool server, so there is nothing it can reach that is not a file
+    on the branch it was given.
+    """
+    assert not _options(agents).mcp_servers
 
 
 def test_the_system_prompt_matches_the_sdk_preset_shape(agents) -> None:
@@ -83,11 +80,11 @@ def test_the_system_prompt_matches_the_sdk_preset_shape(agents) -> None:
     assert prompt["type"] == "preset" and prompt["preset"] == "claude_code"
 
 
-def test_the_agent_is_told_the_three_rules(agents) -> None:
+def test_the_agent_is_told_what_it_may_not_do(agents) -> None:
     appended = _options(agents).system_prompt["append"]
     assert "You never merge" in appended
-    assert "never type a numeral" in appended
-    assert "submitted, not awaited" in appended
+    assert "You never publish" in appended
+    assert "never invent a number" in appended
 
 
 def test_a_follow_up_turn_resumes_the_stored_claude_session(agents) -> None:

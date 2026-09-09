@@ -1,8 +1,8 @@
-"""SQLite state: sessions, jobs, and an append-only event log.
+"""SQLite state: sessions and an append-only event log.
 
-Every job transition is written here *before* it is published to the UI, so a
-backend restart resumes from the record rather than from whatever the UI last
-saw. The event log is replayed to rebuild a session's log after a restart.
+Every agent message is written here before it is published, so the log survives
+a backend restart and a reconnecting tab replays the whole conversation rather
+than resuming mid-sentence.
 """
 
 from __future__ import annotations
@@ -28,34 +28,15 @@ CREATE TABLE IF NOT EXISTS sessions (
     ended_at          REAL
 );
 
-CREATE TABLE IF NOT EXISTS jobs (
-    id              TEXT PRIMARY KEY,
-    session_id      TEXT,
-    scheduler_id    TEXT,
-    host            TEXT,
-    code_sha        TEXT,
-    submit_cmd      TEXT,
-    state           TEXT NOT NULL,
-    exit_code       INTEGER,
-    artifacts_local TEXT,
-    note            TEXT,
-    workdir         TEXT,
-    submitted_at    REAL NOT NULL,
-    started_at      REAL,
-    finished_at     REAL
-);
-
 CREATE TABLE IF NOT EXISTS events (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id   TEXT,
-    job_id       TEXT,
     kind         TEXT NOT NULL,
     payload_json TEXT NOT NULL,
     ts           REAL NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS events_by_session ON events(session_id, id);
-CREATE INDEX IF NOT EXISTS jobs_by_state     ON jobs(state);
 """
 
 
@@ -112,43 +93,6 @@ class Database:
         row = self.one("SELECT COUNT(*) AS n FROM sessions WHERE status = 'running'")
         return int(row["n"]) if row else 0
 
-    # -- jobs -------------------------------------------------------------
-
-    def create_job(self, **fields: Any) -> None:
-        fields.setdefault("submitted_at", time.time())
-        cols = ", ".join(fields)
-        marks = ", ".join("?" * len(fields))
-        self.execute(f"INSERT INTO jobs ({cols}) VALUES ({marks})", fields.values())
-
-    def update_job(self, job_id: str, **fields: Any) -> None:
-        if not fields:
-            return
-        sets = ", ".join(f"{k} = ?" for k in fields)
-        self.execute(f"UPDATE jobs SET {sets} WHERE id = ?", [*fields.values(), job_id])
-
-    def get_job(self, job_id: str) -> dict | None:
-        return self.one("SELECT * FROM jobs WHERE id = ?", (job_id,))
-
-    def list_jobs(self, state: str | None = None, since: float | None = None) -> list[dict]:
-        sql = "SELECT * FROM jobs"
-        args: list[Any] = []
-        where = []
-        if state:
-            where.append("state = ?")
-            args.append(state)
-        if since:
-            where.append("submitted_at >= ?")
-            args.append(since)
-        if where:
-            sql += " WHERE " + " AND ".join(where)
-        return self.query(sql + " ORDER BY submitted_at DESC", args)
-
-    def live_jobs(self) -> list[dict]:
-        return self.query(
-            "SELECT * FROM jobs WHERE state IN "
-            "('SUBMITTED','PENDING','RUNNING','UNREACHABLE') ORDER BY submitted_at"
-        )
-
     # -- events -----------------------------------------------------------
 
     def append_event(
@@ -156,18 +100,15 @@ class Database:
         kind: str,
         payload: Any,
         session_id: str | None = None,
-        job_id: str | None = None,
     ) -> dict:
         ts = time.time()
         cur = self.execute(
-            "INSERT INTO events (session_id, job_id, kind, payload_json, ts) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (session_id, job_id, kind, json.dumps(payload, default=str), ts),
+            "INSERT INTO events (session_id, kind, payload_json, ts) VALUES (?, ?, ?, ?)",
+            (session_id, kind, json.dumps(payload, default=str), ts),
         )
         return {
             "id": cur.lastrowid,
             "session_id": session_id,
-            "job_id": job_id,
             "kind": kind,
             "payload": payload,
             "ts": ts,

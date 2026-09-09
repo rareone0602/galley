@@ -30,21 +30,6 @@ export type Session = {
   files?: { path: string; added: number | null; removed: number | null }[]
 }
 
-export type Job = {
-  id: string
-  session_id: string | null
-  scheduler_id: string | null
-  state: string
-  exit_code: number | null
-  code_sha: string | null
-  note: string | null
-  artifacts_local: string | null
-  submitted_at: number
-  started_at: number | null
-  finished_at: number | null
-  tail?: string
-}
-
 export type GitStatus = {
   branch: string
   head: string
@@ -52,7 +37,6 @@ export type GitStatus = {
   files: { path: string; index: string; worktree: string }[]
   worktrees: { path: string; branch: string }[]
   log: { sha: string; author: string; ts: number; subject: string }[]
-  unbacked_results: string[]
   overleaf: {
     branch: string
     on_main: boolean
@@ -71,10 +55,7 @@ export type Config = {
   main_branch: string
   main_tex: string
   overleaf: string
-  backend: string
-  scratch: string
   max_concurrent_sessions: number
-  max_queued_jobs: number
   latexdiff: boolean
   bind: string
 }
@@ -158,19 +139,6 @@ export const api = {
   rebase: (action: 'continue' | 'abort') =>
     json<SyncResult>(`/api/git/rebase/${action}`, { method: 'POST' }),
 
-  jobs: () => json<Job[]>('/api/jobs'),
-  job: (id: string) => json<Job>(`/api/jobs/${id}`),
-  submitJob: (script: string, note: string, gpus: number, hours: number) =>
-    json<Job>('/api/jobs', {
-      method: 'POST',
-      body: JSON.stringify({ script, note, gpus, hours }),
-    }),
-  fetchArtifacts: (id: string) =>
-    json<{ ok: boolean; artifacts: string; files: string[] }>(`/api/jobs/${id}/fetch`, {
-      method: 'POST',
-    }),
-  cancelJob: (id: string) => json<{ ok: boolean }>(`/api/jobs/${id}/cancel`, { method: 'POST' }),
-  handoff: (id: string) => json<Session>(`/api/jobs/${id}/handoff`, { method: 'POST' }),
 
   compile: (sessionId?: string) =>
     json<CompileResult>('/api/compile', {

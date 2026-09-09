@@ -2,24 +2,11 @@
 
 [paths]
 paper_repo  = "/Users/you/papers/my-paper"
+# The codebase, mounted beside the paper so Claude can read what the
+# experiments actually did before it describes them.
 code_mirror = "/Users/you/code/my-project"
 # SQLite state and the LaTeX build directory. Small; keep it somewhere durable.
 state_dir   = ".galley"
-# Pulled artifacts: possibly large, and NOT rebuildable. Give them their own
-# home if your scratch filesystem reaps files by modification time.
-artifacts_dir = ".galley/artifacts-cache"
-
-[cluster]
-# The only backend implemented is "gpuq", the scheduler on wsserver1. It has no
-# daemon: `gpuq submit` claims a GPU and runs the command in the foreground, so
-# galley detaches it into a tmux session that outlives both the Claude session
-# that asked for it and galley itself.
-backend       = "gpuq"
-# Run directories. Rebuildable from the pinned commit, so bulk scratch is fine.
-scratch       = "/scratch/you/galley"
-submit_flags  = ["--queue"]
-max_job_hours = 12.0
-tmux_prefix   = "galley"
 
 [paper]
 # The branch you merge onto, and the Overleaf remote. On a repo cloned straight
@@ -30,8 +17,8 @@ overleaf_branch = "master"
 main_tex        = "main.tex"
 
 [server]
-# Loopback only. The MCP surface on this port can spawn agents, write files in
-# the paper repo, and submit jobs as you; reach it from elsewhere with
+# Loopback only. Anyone who can reach this port can spawn agents and write files
+# in the paper repo; reach it from elsewhere with
 #   ssh -L 8124:localhost:8124 <host>
 bind = "127.0.0.1"
 port = 8124
@@ -40,9 +27,6 @@ port = 8124
 # Worktrees make it easy to run several agents at once and exhaust your
 # subscription window.
 max_concurrent_sessions = 2
-# gpuq admits on a VRAM sample taken at submit time, so two of your own queued
-# waiters are both admitted against the same freed card. One at a time.
-max_queued_jobs = 1
 
 # Do NOT put ANTHROPIC_API_KEY in the environment. Galley strips it at spawn so
 # the agent uses your Claude subscription rather than metered API billing, and

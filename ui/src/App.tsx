@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api, type Config, type Session } from './api'
 import GitPanel from './components/GitPanel'
-import JobBoard from './components/JobBoard'
 import LogPane from './components/LogPane'
 import MergePane from './components/MergePane'
 import PdfPane from './components/PdfPane'
 
-type Tab = 'log' | 'merge' | 'git' | 'jobs' | 'pdf'
+type Tab = 'log' | 'merge' | 'git' | 'pdf'
 
 export default function App() {
   const [config, setConfig] = useState<Config | null>(null)
@@ -54,7 +53,7 @@ export default function App() {
           <h1>Galley</h1>
           <div className="sub">
             {config ? config.paper_repo.split('/').slice(-1)[0] : '…'} ·{' '}
-            {config?.backend ?? '…'} · {config?.bind ?? ''}
+            {config?.main_branch ?? '…'} · {config?.bind ?? ''}
           </div>
         </header>
 
@@ -127,9 +126,6 @@ export default function App() {
               {t === 'log' ? 'Session log' : t === 'merge' ? 'Merge' : 'PDF'}
             </button>
           ))}
-          <button className={tab === 'jobs' ? 'on' : ''} onClick={() => setTab('jobs')}>
-            Jobs
-          </button>
           <button className={tab === 'git' ? 'on' : ''} onClick={() => setTab('git')}>
             Git &amp; Overleaf
           </button>
@@ -152,15 +148,6 @@ export default function App() {
               <div className="empty">Pick a session to review its changes.</div>
             ))}
           {tab === 'git' && <GitPanel />}
-          {tab === 'jobs' && (
-            <JobBoard
-              onHandoff={(id) => {
-                setCurrent(id)
-                setTab('log')
-                void reload()
-              }}
-            />
-          )}
           {tab === 'pdf' && (
             <PdfPane sessionId={session?.id ?? null} latexdiffAvailable={config?.latexdiff ?? false} />
           )}

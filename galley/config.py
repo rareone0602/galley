@@ -28,19 +28,6 @@ class Paths:
     paper_repo: Path
     code_mirror: Path
     state_dir: Path
-    # Pulled artifacts are not rebuildable, so they get their own home. On a
-    # host whose scratch is reaped by modification time, that home must not be
-    # the same place as the run directories.
-    artifacts_dir: Path
-
-
-@dataclass(frozen=True)
-class Cluster:
-    backend: str = "gpuq"
-    scratch: Path = Path("/scratch/galley")
-    submit_flags: list[str] = field(default_factory=lambda: ["--queue"])
-    max_job_hours: float = 12.0
-    tmux_prefix: str = "galley"
 
 
 @dataclass(frozen=True)
@@ -60,13 +47,11 @@ class Server:
 @dataclass(frozen=True)
 class Limits:
     max_concurrent_sessions: int = 2
-    max_queued_jobs: int = 1
 
 
 @dataclass(frozen=True)
 class Config:
     paths: Paths
-    cluster: Cluster
     paper: Paper
     server: Server
     limits: Limits
@@ -75,10 +60,6 @@ class Config:
     @property
     def db_path(self) -> Path:
         return self.paths.state_dir / "galley.db"
-
-    @property
-    def artifacts_dir(self) -> Path:
-        return self.paths.artifacts_dir
 
     @property
     def worktrees_dir(self) -> Path:
@@ -114,18 +95,6 @@ def load(path: Path | None = None) -> Config:
         paper_repo=_path(paths_raw, "paper_repo"),
         code_mirror=_path(paths_raw, "code_mirror"),
         state_dir=_path(paths_raw, "state_dir", str(root / ".galley")),
-        artifacts_dir=_path(
-            paths_raw, "artifacts_dir", str(root / ".galley" / "artifacts-cache")
-        ),
-    )
-
-    c = raw.get("cluster", {})
-    cluster = Cluster(
-        backend=c.get("backend", "gpuq"),
-        scratch=_path(c, "scratch", "/scratch/galley"),
-        submit_flags=list(c.get("submit_flags", ["--queue"])),
-        max_job_hours=float(c.get("max_job_hours", 12.0)),
-        tmux_prefix=c.get("tmux_prefix", "galley"),
     )
 
     p = raw.get("paper", {})
@@ -140,12 +109,9 @@ def load(path: Path | None = None) -> Config:
     server = Server(bind=s.get("bind", "127.0.0.1"), port=int(s.get("port", 8124)))
 
     limit = raw.get("limits", {})
-    limits = Limits(
-        max_concurrent_sessions=int(limit.get("max_concurrent_sessions", 2)),
-        max_queued_jobs=int(limit.get("max_queued_jobs", 1)),
-    )
+    limits = Limits(max_concurrent_sessions=int(limit.get("max_concurrent_sessions", 2)))
 
-    cfg = Config(paths, cluster, paper, server, limits, path)
+    cfg = Config(paths, paper, server, limits, path)
     validate(cfg)
     return cfg
 
@@ -166,18 +132,17 @@ def validate(cfg: Config) -> None:
     if not cfg.paths.code_mirror.is_dir():
         raise ConfigError(f"code_mirror {cfg.paths.code_mirror} does not exist")
     if cfg.server.bind not in ("127.0.0.1", "localhost", "::1"):
-        # Not fatal, but the MCP surface on this port can write files and spawn
-        # agents, so it should never be a surprise.
+        # Not fatal, but this port can spawn agents and write files in the
+        # paper repo, so it should never be a surprise.
         import warnings
 
         warnings.warn(
-            f"galley is bound to {cfg.server.bind}, not loopback: the /mcp tool "
-            "surface is reachable from the network.",
+            f"galley is bound to {cfg.server.bind}, not loopback: anyone who "
+            "can reach this port can spawn agents and write to the paper repo.",
             stacklevel=2,
         )
 
     cfg.paths.state_dir.mkdir(parents=True, exist_ok=True)
-    cfg.artifacts_dir.mkdir(parents=True, exist_ok=True)
 
 
 def child_env() -> dict[str, str]:
