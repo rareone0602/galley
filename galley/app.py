@@ -71,8 +71,10 @@ def create_app(cfg: Config | None = None) -> FastAPI:
             row["running"] = agents.is_running(row["id"])
         return rows
 
+    # These two must be async: starting an agent creates an asyncio task, and a
+    # sync route runs in a worker thread where there is no running loop.
     @app.post("/api/sessions")
-    def create_session(body: dict = Body(...)) -> dict:
+    async def create_session(body: dict = Body(...)) -> dict:
         prompt = (body.get("prompt") or "").strip()
         if not prompt:
             raise HTTPException(400, "a session needs a prompt")
@@ -81,7 +83,15 @@ def create_app(cfg: Config | None = None) -> FastAPI:
         except SessionLimitReached as exc:
             raise HTTPException(429, str(exc)) from exc
         if body.get("start", True):
-            agents.start(row["id"])
+            try:
+                agents.start(row["id"])
+            except Exception as exc:  # noqa: BLE001
+                # The worktree exists but nothing is using it. Leaving it behind
+                # would silently claim the slug, so the next session with the
+                # same prompt would be "-2" for no reason a human can see.
+                worktree.remove(cfg.paths.paper_repo, row["slug"], keep_branch=False)
+                db.update_session(row["id"], status="error", error=str(exc))
+                raise HTTPException(500, f"could not start the agent: {exc}") from exc
         return row
 
     @app.get("/api/sessions/{session_id}")
@@ -96,7 +106,7 @@ def create_app(cfg: Config | None = None) -> FastAPI:
         return row
 
     @app.post("/api/sessions/{session_id}/message")
-    def send_message(session_id: str, body: dict = Body(...)) -> dict:
+    async def send_message(session_id: str, body: dict = Body(...)) -> dict:
         text = (body.get("text") or "").strip()
         if not text:
             raise HTTPException(400, "an empty message goes nowhere")

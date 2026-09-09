@@ -146,3 +146,74 @@ def test_usage_is_surfaced_so_you_can_see_what_a_session_cost() -> None:
         ResultMessage(duration_ms=1200, num_turns=3, is_error=False, usage={}, total_cost_usd=0.02)
     )
     assert events[0]["payload"]["total_cost_usd"] == 0.02
+
+
+# -- the codebase is mounted to be read, not changed -----------------------
+
+
+@pytest.fixture
+def guard(tmp_path):
+    from galley.services.agent import writes_only_inside
+
+    wt = tmp_path / "worktree"
+    (wt / "sections").mkdir(parents=True)
+    return writes_only_inside(wt), wt
+
+
+async def test_an_edit_inside_the_worktree_is_allowed(guard) -> None:
+    can_use_tool, wt = guard
+    result = await can_use_tool("Edit", {"file_path": str(wt / "sections/intro.tex")}, None)
+    assert result.behavior == "allow"
+
+
+async def test_a_relative_path_resolves_against_the_worktree(guard) -> None:
+    can_use_tool, _ = guard
+    result = await can_use_tool("Write", {"file_path": "sections/new.tex"}, None)
+    assert result.behavior == "allow"
+
+
+@pytest.mark.parametrize("tool", ["Edit", "Write", "NotebookEdit", "MultiEdit"])
+async def test_writing_into_the_codebase_is_refused(guard, tmp_path, tool: str) -> None:
+    """add_dirs grants access, not read-only access, and the codebase mounted
+    here is a live working tree."""
+    can_use_tool, _ = guard
+    result = await can_use_tool(tool, {"file_path": str(tmp_path / "code/train.py")}, None)
+    assert result.behavior == "deny"
+    assert "outside this session's worktree" in result.message
+
+
+async def test_traversing_out_of_the_worktree_is_refused(guard) -> None:
+    can_use_tool, _ = guard
+    result = await can_use_tool("Edit", {"file_path": "../../../etc/passwd"}, None)
+    assert result.behavior == "deny"
+
+
+@pytest.mark.parametrize("tool", ["Read", "Grep", "Glob", "NotebookRead"])
+async def test_reading_anywhere_is_still_allowed(guard, tmp_path, tool: str) -> None:
+    can_use_tool, _ = guard
+    result = await can_use_tool(tool, {"file_path": str(tmp_path / "code/train.py")}, None)
+    assert result.behavior == "allow"
+
+
+@pytest.mark.parametrize("tool", ["Bash", "WebFetch", "Task", "SlashCommand"])
+async def test_everything_else_is_denied(guard, tool: str) -> None:
+    """A shell would undo every other line of the guard: `echo x > ../file` is
+    a write by another name."""
+    can_use_tool, _ = guard
+    result = await can_use_tool(tool, {"command": "echo hi > ../../code/train.py"}, None)
+    assert result.behavior == "deny"
+    assert "not available in Galley" in result.message
+
+
+def test_galley_commits_the_branch_because_the_agent_has_no_shell(paper_repo, git_helper) -> None:
+    from galley.services.agent import _commit_worktree
+    from galley.services.worktree import create
+
+    tree = create(paper_repo, "commit-check", "main")
+    assert _commit_worktree(tree.path)["committed"] is False  # nothing changed yet
+
+    (tree.path / "main.tex").write_text("A new sentence.\n")
+    result = _commit_worktree(tree.path)
+    assert result["committed"] is True
+    assert "Claude: proposed changes" in git_helper(tree.path, "log", "-1", "--format=%s")
+    assert git_helper(tree.path, "status", "--porcelain") == ""

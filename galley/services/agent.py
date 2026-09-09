@@ -1,8 +1,10 @@
 """Spawn Claude inside a session's worktree and stream what it does.
 
-The agent is scoped to its own checkout, with the code mirror mounted alongside
-so Grep/Glob/Edit work at local speed over the whole codebase. Its only extra
-tools are Galley's own, over MCP on loopback.
+The agent is scoped to its own checkout, with the codebase mounted alongside so
+Grep and Read work at local speed over the whole of it. It has no tools beyond
+the ordinary file ones, and it may only *write* inside its own worktree: the
+codebase is there to be read, so the agent can find out what the experiments
+did before it describes them.
 """
 
 from __future__ import annotations
@@ -13,7 +15,12 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from claude_agent_sdk import ClaudeAgentOptions, query
+from claude_agent_sdk import (
+    ClaudeAgentOptions,
+    PermissionResultAllow,
+    PermissionResultDeny,
+    query,
+)
 
 from ..bus import EventBus
 from ..config import Config, child_env
@@ -31,6 +38,8 @@ Your job is to write a patch, and only that.
   the design working, not a failure.
 - You never publish. No pushing, no committing on the main branch, no touching
   the Overleaf remote. Those are the human's.
+- You never edit the codebase. It is mounted beside the paper so you can read
+  what the experiments did; edits outside your worktree are refused.
 - You never invent a number. Every figure in this paper is generated from a
   measured artefact by the repository's own tooling. If a claim needs a number
   you cannot trace to one, write the claim without it and say so.
@@ -42,6 +51,63 @@ experiments actually did before you describe them.
 
 class SessionLimitReached(RuntimeError):
     pass
+
+
+# Default deny. Writing to the paper on your own branch, and reading anything,
+# is the whole job; there is no third thing an agent needs here.
+#
+# Bash is deliberately absent. Allowing it would undo every other line of this
+# guard — `echo x > ../../code/train.py` is a write by another name — and the
+# only shell an agent would legitimately want is `git commit`, which Galley does
+# for it when the turn ends.
+WRITING_TOOLS = {"Edit", "Write", "NotebookEdit", "MultiEdit"}
+READING_TOOLS = {"Read", "Grep", "Glob", "NotebookRead", "TodoWrite", "ExitPlanMode"}
+# Where a writing tool names its target.
+PATH_ARGS = ("file_path", "path", "notebook_path", "filePath")
+
+
+def writes_only_inside(worktree: Path):
+    """Refuse anything but reading, and writing inside the session's checkout.
+
+    `add_dirs` grants access, not read-only access, and the codebase mounted
+    here is a live working tree with a campaign running in it. The agent's job
+    is to write a patch on its own branch, so the refusal is structural rather
+    than a request in the prompt.
+    """
+
+    root = worktree.resolve()
+
+    async def can_use_tool(name: str, args: dict, _context) -> object:
+        if name in READING_TOOLS:
+            return PermissionResultAllow()
+        if name not in WRITING_TOOLS:
+            return PermissionResultDeny(
+                message=(
+                    f"{name} is not available in Galley. Your job here is to "
+                    "write prose into this worktree; reading the paper and the "
+                    "codebase is allowed, and Galley commits your work for you "
+                    "when the turn ends."
+                )
+            )
+        raw = next((args[k] for k in PATH_ARGS if args.get(k)), None)
+        if raw is None:
+            return PermissionResultAllow()
+        target = Path(str(raw))
+        target = target if target.is_absolute() else root / target
+        try:
+            target.resolve().relative_to(root)
+        except ValueError:
+            return PermissionResultDeny(
+                message=(
+                    f"{target} is outside this session's worktree. Galley mounts "
+                    "the codebase so you can read what the experiments did, not "
+                    "so you can change it. Write only inside "
+                    f"{root}, and only prose for the paper."
+                )
+            )
+        return PermissionResultAllow()
+
+    return can_use_tool
 
 
 class AgentService:
@@ -112,6 +178,7 @@ class AgentService:
     def _options(self, row: dict) -> ClaudeAgentOptions:
         return ClaudeAgentOptions(
             cwd=row["worktree_path"],
+            can_use_tool=writes_only_inside(Path(row["worktree_path"])),
             add_dirs=[str(self.cfg.paths.code_mirror)],
             permission_mode="acceptEdits",
             system_prompt={"type": "preset", "preset": "claude_code", "append": SYSTEM_APPENDIX},
@@ -135,7 +202,7 @@ class AgentService:
                         )
                     await self._emit(session_id, event["kind"], event["payload"])
             self.db.update_session(session_id, status="idle")
-            await self._emit(session_id, "turn_end", {})
+            await self._emit(session_id, "turn_end", _commit_worktree(Path(row["worktree_path"])))
         except asyncio.CancelledError:
             self.db.update_session(session_id, status="stopped")
             raise
@@ -146,6 +213,25 @@ class AgentService:
     async def _emit(self, session_id: str, kind: str, payload: Any) -> None:
         event = self.db.append_event(kind, payload, session_id=session_id)
         await self.bus.publish(f"session:{session_id}", event)
+
+
+def _commit_worktree(worktree: Path) -> dict:
+    """Commit whatever the agent wrote, so the branch is the record.
+
+    The agent has no shell, so this is Galley's to do. It is bookkeeping, not
+    authorship: the merge pane reads the committed state, and the branch is what
+    remains as provenance after the worktree is thrown away.
+    """
+    from . import git
+
+    try:
+        if git.is_clean(worktree):
+            return {"committed": False, "reason": "nothing changed"}
+        git.run(worktree, "add", "-A")
+        git.run(worktree, "commit", "-m", "Claude: proposed changes")
+        return {"committed": True, "sha": git.head_sha(worktree)[:10]}
+    except git.GitError as exc:
+        return {"committed": False, "reason": str(exc)}
 
 
 def normalise(message: Any) -> list[dict]:

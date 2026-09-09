@@ -6,6 +6,7 @@ comes from `git diff`, and the write-back really lands on disk.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 
@@ -157,3 +158,89 @@ def test_worktrees_are_excluded_locally_not_via_gitignore(client, paper_repo) ->
 
     status = client.get("/api/git/status").json()
     assert not any(f["path"].startswith(".worktrees") for f in status["files"])
+
+
+# -- actually starting an agent -------------------------------------------
+
+
+class _Text:
+    def __init__(self, text: str) -> None:
+        self.text = text
+
+
+class TextBlock(_Text): ...
+
+
+class AssistantMessage:
+    def __init__(self, content) -> None:
+        self.content = content
+
+
+@pytest.fixture
+def fake_agent(monkeypatch):
+    """Stand in for the SDK, so the spawn path runs without spending anything."""
+    seen = {}
+
+    async def fake_query(prompt, options):
+        seen["prompt"] = prompt
+        seen["options"] = options
+        # The agent writes a file, the way a real one would.
+        (Path(options.cwd) / "main.tex").write_text("Rewritten by the agent.\n")
+        yield AssistantMessage([TextBlock("Rewrote one sentence.")])
+
+    monkeypatch.setattr("galley.services.agent.query", fake_query)
+    return seen
+
+
+async def test_starting_a_session_runs_the_agent_and_logs_it(client, fake_agent) -> None:
+    """A sync route would run this in a worker thread, where creating the
+    agent's asyncio task fails with 'no running event loop'."""
+    row = client.post("/api/sessions", json={"prompt": "tighten one sentence"}).json()
+    for _ in range(50):
+        if client.get(f"/api/sessions/{row['id']}").json()["status"] == "idle":
+            break
+        await asyncio.sleep(0.05)
+
+    session = client.get(f"/api/sessions/{row['id']}").json()
+    assert session["status"] == "idle", session.get("error")
+    assert fake_agent["prompt"] == "tighten one sentence"
+    assert fake_agent["options"].cwd == row["worktree_path"]
+
+
+async def test_the_agents_work_is_committed_and_shows_in_the_merge_pane(
+    client, fake_agent
+) -> None:
+    row = client.post("/api/sessions", json={"prompt": "rewrite it"}).json()
+    for _ in range(50):
+        if client.get(f"/api/sessions/{row['id']}").json()["status"] == "idle":
+            break
+        await asyncio.sleep(0.05)
+
+    body = client.get("/api/diff", params={"session_id": row["id"]}).json()
+    assert [f["path"] for f in body["files"]] == ["main.tex"]
+    assert any("Rewritten by the agent." in op["new"] for op in body["files"][0]["ops"])
+
+
+async def test_a_follow_up_message_starts_another_turn(client, fake_agent) -> None:
+    row = client.post("/api/sessions", json={"prompt": "first", "start": False}).json()
+    assert client.post(f"/api/sessions/{row['id']}/message", json={"text": "second"}).json()["ok"]
+    for _ in range(50):
+        if client.get(f"/api/sessions/{row['id']}").json()["status"] == "idle":
+            break
+        await asyncio.sleep(0.05)
+    assert fake_agent["prompt"] == "second"
+
+
+async def test_a_failed_start_leaves_no_worktree_behind(client, paper_repo, monkeypatch) -> None:
+    """Otherwise the slug is silently claimed and the next identical prompt
+    becomes '-2' for no reason a human can see."""
+
+    def explode(*_a, **_k):
+        raise RuntimeError("no running event loop")
+
+    monkeypatch.setattr(client.app.state.agents, "start", explode)
+    resp = client.post("/api/sessions", json={"prompt": "doomed session"})
+    assert resp.status_code == 500
+    assert "could not start the agent" in resp.json()["detail"]
+    assert not (paper_repo / ".worktrees" / "doomed-session").exists()
+    assert client.get("/api/git/status").json()["worktrees"] == []
