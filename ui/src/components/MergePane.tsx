@@ -25,9 +25,12 @@ type Step = { says: string; decisions: Decisions }
  * that moved picked out inside them.
  *
  * The merge is the middle column, and it has three answers, not two: keep
- * yours, take Claude's, or **write a third thing**. Double-click either side to
- * edit it. Yours-rewritten wins over both, which is the point — Claude's draft
- * is a suggestion, and the sentence that lands is the one you decided on.
+ * yours, take Claude's, or **write a third thing**. That third one is the one
+ * this pane is really for, so it costs nothing: click into either side and
+ * type, right there in the row, with the other version still beside you. The
+ * caret lands where you pointed. Yours-rewritten wins over both, which is the
+ * point — Claude's draft is a suggestion, and the sentence that lands is the
+ * one you decided on.
  *
  * A session across a real paper is dozens of changes in several files, so this
  * is a review tool rather than a long scroll: the keyboard steps through them
@@ -54,6 +57,10 @@ export default function MergePane({
   /** Each file as this pane last saw it in the working copy. */
   const [disk, setDisk] = useState<Record<string, string>>({})
   const [editing, setEditing] = useState<number | null>(null)
+  /* What is in the open box. Held apart from the answers on purpose: clicking
+   * into a sentence to look at it more closely is not a decision, and until a
+   * key is pressed the change is still one of the ones left to go. */
+  const [draft, setDraft] = useState('')
   const [cursor, setCursor] = useState(0)
   const [view, setView] = useState<View>('split')
   const [planning, setPlanning] = useState(false)
@@ -191,20 +198,25 @@ export default function MergePane({
     setDecisions((prev) => ({ ...prev, [file.path]: bulk }))
   }
 
+  /** Open the box on a change. Answers nothing: see `draft`. */
   function startRewrite(id: number, seed: string) {
     const at = positions.get(id)
     if (at === undefined) return
-    if (answers[id]?.kind !== 'rewrite') {
-      remember(`started rewriting change ${at + 1}`)
-      record('review.decide', { answer: 'rewrite', bulk: false })
-      put(id, { kind: 'rewrite', text: seed })
-    }
+    const already = answers[id]
+    setDraft(already?.kind === 'rewrite' ? already.text : seed)
     setCursor(at)
     setEditing(id)
   }
 
-  /** Every keystroke in the box. Undo winds back decisions, not typing. */
+  /** Every keystroke in the box. Undo winds back decisions, not typing — but
+   *  the *first* keystroke is a decision, and it is the one that turns a
+   *  sentence you were reading into a sentence you are writing. */
   function typeInto(id: number, text: string) {
+    setDraft(text)
+    if (answers[id]?.kind !== 'rewrite') {
+      remember(`started rewriting change ${(positions.get(id) ?? 0) + 1}`)
+      record('review.decide', { answer: 'rewrite', bulk: false })
+    }
     put(id, { kind: 'rewrite', text })
   }
 
@@ -217,6 +229,7 @@ export default function MergePane({
       delete forFile[id]
       return { ...prev, [file.path]: forFile }
     })
+    setDraft('')
     setEditing(null)
   }
 
@@ -232,8 +245,18 @@ export default function MergePane({
   // -- the keyboard -------------------------------------------------------
 
   function handleKey(event: KeyboardEvent) {
-    if (isTyping(event.target)) return
     const action = actionFor(event)
+    // While you are typing a rewrite, the letters belong to the sentence. Save
+    // is the exception and has to be: it is the one chord the browser also
+    // wants, so leaving it alone means Ctrl-S inside the box opens "save page"
+    // — which is what it did, and why this line is here.
+    if (isTyping(event.target)) {
+      if (action !== 'save') return
+      event.preventDefault()
+      setEditing(null)
+      setPlanning(true)
+      return
+    }
     if (!action) return
     // A key this pane claims is this pane's, even in the moment it is ignoring
     // it: letting Ctrl-S through to the browser's "save page" would be worse.
@@ -484,6 +507,7 @@ export default function MergePane({
                   current={here?.id === op.id}
                   answer={answers[op.id]}
                   editing={editing === op.id}
+                  draft={draft}
                   onAnswer={(answer) => answerOne(op.id, answer, false)}
                   onRewrite={(seed) => startRewrite(op.id, seed)}
                   onType={(text) => typeInto(op.id, text)}

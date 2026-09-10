@@ -87,6 +87,7 @@ Galley at once without colliding.
 | **a language for the editor** | one entry in `BY_EXTENSION` or `BY_FILENAME` | `ui/src/editor/languages.ts` |
 | **a preview for a kind of file** | a component in `ui/src/components/preview/`, one entry in `BY_EXTENSION`, one branch in `PreviewPane` | `ui/src/components/preview/kinds.ts` + `PreviewPane.tsx` |
 | **a habit for the agent** | a folder with a `SKILL.md` under `galley-skills/skills/` | nothing else; restart Galley. See the README there |
+| **a house style the agent must follow** | a `CLAUDE.md` in the paper repository | nothing in Galley. `setting_sources=["project"]` and a cwd inside the worktree mean the project's own file is read every turn, and Galley stays project-agnostic |
 
 `Deps` is the object every route area receives — config, database, bus, agents,
 the work table — plus the few questions more than one area asks (`require_session`,
@@ -174,9 +175,21 @@ Three things about it worth knowing before you add a check:
   afternoon: the DOM was right and the screenshot was of the previous build.
 - **Write the check as the sentence you would say to someone.** "a task sits on
   one line with its box". When it fails, that sentence is the bug report.
-- **Look at the screenshots.** They land in `$TMPDIR/galley-probe`. Two real
+- **Look at the screenshots.** They land in `$TMPDIR/galley-probe`. Three real
   defects here passed every assertion and were obvious in the picture — a check
-  can only find what you thought to ask.
+  can only find what you thought to ask. The third was in the merge pane: every
+  assertion about the in-place rewrite box passed, and the header behind it read
+  `1 rewritten · 1 to go` when nothing had been typed. Clicking into a sentence
+  had become an answer.
+
+**The review pane is reachable without paying for a turn.** `POST /api/sessions`
+with `start: false` builds the worktree and stops; committing in that worktree
+is exactly what the end of a turn does, so `/api/diff` cannot tell the
+difference. `seed_review()` in `probe/drive.py` does it, and the sentences it
+rewrites live beside the fixture's own paper in `probe/fixture.py`, so the two
+cannot drift apart. This matters more than it sounds: the merge pane is where
+the time actually goes, and until this it was the one surface no check could
+open.
 
 ---
 

@@ -36,7 +36,7 @@ export const BINDINGS: Binding[] = [
   { action: 'prev', chords: ['k', 'p'], says: 'previous change' },
   { action: 'claude', chords: ['a'], says: "take Claude's wording, then step on" },
   { action: 'keep', chords: ['r'], says: 'keep your wording, then step on' },
-  { action: 'rewrite', chords: ['e'], says: 'write your own wording instead' },
+  { action: 'rewrite', chords: ['e'], says: 'write your own wording instead (or click into the text)' },
   { action: 'claudeAll', chords: ['A'], says: "take Claude's for this whole file, leaving your rewrites" },
   { action: 'keepAll', chords: ['R'], says: 'keep yours for this whole file, leaving your rewrites' },
   { action: 'undo', chords: ['u', 'Mod+z'], says: 'undo the last decision' },
@@ -112,8 +112,9 @@ export default function Shortcuts({ onClose }: { onClose: () => void }) {
         </tbody>
       </table>
       <div className="muted small">
-        Ctrl is ⌘ on a Mac. Keys are ignored while you are typing, and nothing
-        here writes to the paper — only Save does.
+        Ctrl is ⌘ on a Mac. Letters are ignored while you are typing a rewrite;
+        Ctrl S still works there. You can also click into either side of a
+        change and type. Nothing here writes to the paper — only Save does.
       </div>
     </div>
   )

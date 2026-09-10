@@ -201,21 +201,46 @@ button.take:disabled { opacity: 0.4; }
 /* Once you have written your own, the proposal is only there for reference. */
 .drow.change .cell.muted-side { background: var(--bg-secondary); color: var(--content-secondary); opacity: 0.7; }
 
-.drow.change.editing { display: block; }
-.editing-cell {
-  padding: 8px 12px;
-  background: var(--bg-secondary);
+/* -- writing your own, in place ---------------------------------------- */
+
+/* Both sides are live: clicking your sentence puts the caret where you
+   pointed, clicking Claude's starts from his and lets you change a word of
+   it. The cursor says so before the click does. */
+.drow.change .cell.old,
+.drow.change .cell.new,
+.drow.change .cell.rewritten { cursor: text; }
+.drow.change:not(.editing) .cell.old:hover,
+.drow.change:not(.editing) .cell.new:hover,
+.drow.change:not(.editing) .cell.rewritten:hover {
+  box-shadow: inset 0 0 0 1px var(--border-active);
+}
+/* Claude's side is dimmed while unanswered; hovering it is about to be a
+   gesture, so it comes back up to full strength under the pointer. */
+.drow.change:not(.taken):not(.editing) .cell.new:hover { opacity: 1; }
+
+/* The row keeps its two columns while you type. Only your side changes. */
+.cell.old.writing {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  background: var(--yellow-10);
+  opacity: 1;
 }
-.editing-cell textarea {
+.cell.old.writing textarea {
   font-family: var(--mono);
   font-size: var(--fs);
   line-height: 1.6;
+  color: var(--content-primary);
   background: var(--bg-primary);
-  min-height: 60px;
+  border: 1px solid var(--border-active);
+  border-radius: var(--radius);
+  padding: 4px 6px;
+  /* Sized to its content by the component, so there is never a scrollbar
+     inside one half of a comparison. */
+  overflow: hidden;
+  resize: none;
 }
+.writing-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 
 /* -- the keyboard, and what Save would write --------------------------- */
 

@@ -23,8 +23,13 @@ they actually asked for gets buried in the noise.
 
 This is the rule that matters most and is easiest to break by accident.
 
-- **Do not reflow.** LaTeX paragraphs are often one very long line. Rewrapping
-  one turns a two-word fix into a whole-paragraph rewrite in the diff.
+- **Do not reflow.** Keep the line discipline the file already uses, and change
+  only the lines you meant to change. Where the source is written one sentence
+  per line — check, it usually is, and the project's own instructions will say
+  — a reworded sentence is one changed line, and a sentence you add gets a line
+  of its own. Where it is wrapped at a column, leave the wrap where it is.
+  Either way, rewrapping a paragraph turns a two-word fix into a
+  whole-paragraph rewrite that a human then has to read line by line.
 - **Do not tidy** whitespace, quotes, dashes, or spacing around `\cite` — not
   even where it is genuinely untidy — unless that is what you were asked to do.
 - **Do not reorder** anything: sentences, items, fields in a `.bib` entry.

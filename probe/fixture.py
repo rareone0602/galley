@@ -70,6 +70,24 @@ port = {port}
 enabled = true
 """
 
+PAPER = """\\documentclass{article}
+\\begin{document}
+The kernel either accepts a candidate as a proof of the statement or it does not.
+Acceptance is therefore decided rather than scored.
+We train on the serialisation of the term itself.
+That serialisation is injective, so a distribution over strings is a distribution over terms.
+\\end{document}
+"""
+
+#: What a turn would have written, for the review pane. Two sentences reworded
+#: and two left exactly as they were, so the pane has both to show.
+PROPOSED = [
+    ("Acceptance is therefore decided rather than scored.",
+     "Acceptance is decided, not scored."),
+    ("That serialisation is injective, so a distribution over strings is a distribution over terms.",
+     "The serialisation is injective, so a distribution over strings is one over terms."),
+]
+
 #: 16x16, so that "did the figure load" is answered by a real decode.
 PLOT_PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAKklEQVR42mNk"
@@ -83,10 +101,16 @@ def build(root: Path, port: int) -> Path:
     paper = root / "paper"
     (paper / "figures").mkdir(parents=True)
 
-    (paper / "main.tex").write_text(
-        "\\documentclass{article}\n\\begin{document}\nHello.\n\\end{document}\n"
-    )
+    # Prose, one sentence to a line, because the merge pane reads sentences and
+    # the probe seeds a session that rewrites two of them.
+    (paper / "main.tex").write_text(PAPER)
     (paper / "README.md").write_text(README)
+    # House style for whoever writes here, agent included. Galley never reads
+    # it; the agent does, because its cwd is a worktree of this project. The
+    # probe checks it arrives, which is the part Galley is responsible for.
+    (paper / "CLAUDE.md").write_text(
+        "# CLAUDE.md — the probe project\n\nOne sentence per line in every .tex file.\n"
+    )
     (paper / "notes.md").write_text("# Notes\nReached by following a link from the README.\n")
     # A config, for the JSON pane: nested, with a null and a false in it.
     (paper / "config.json").write_text(

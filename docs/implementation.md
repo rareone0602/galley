@@ -851,6 +851,52 @@ afternoon here, with a correct DOM and a screenshot of the previous one.
 It is not in `check.sh`. It wants a browser and a free port, and a check that
 cannot run everywhere does not belong in the one you must run before a commit.
 
+## 30. Rewriting a sentence without losing sight of the other one
+
+Po Hung, 2026-09-10: *"I expect I can directly modify my text in the review-diff
+so that I can make my change manually closer to Claude's while keeping the
+wording I want, not an extra edit block. Bad UX"*.
+
+He was right, and `galley usage` says how much it cost: seven reviews opened,
+**none ever saved**, eighty-four changes offered and nothing at all reaching the
+paper. Three rewrites were started. The pane he spends his time in was the one
+whose loop had never once finished.
+
+The defect was the shape of the edit. Double-clicking a side replaced the whole
+row with a full-width box — so the comparison vanished at exactly the moment you
+were moving one sentence towards the other, which is the only reason to be
+writing in that pane at all. Now the row keeps its three columns and only your
+side becomes a box: Claude's sentence stays beside it, word marks and all, and
+the gutter keeps its three buttons.
+
+Two smaller things follow from making it a click rather than a double-click:
+
+- **The caret lands where you pointed.** `caretRangeFromPoint` against the
+  span that holds only the text (not the change number beside it), converted to
+  a character offset and set on the textarea before paint. Without it, clicking
+  into a sentence to change its first word put you at the end of it.
+- **Opening a box is not an answer.** The text being typed lives in `draft` on
+  the pane, and only the first keystroke writes a `rewrite` answer. The earlier
+  version recorded the answer when the box opened, which was harmless behind a
+  double-click and wrong behind a single one: a stray click ticked a change off
+  `n to go`. Every assertion passed; the screenshot showed it.
+
+Clicking **Claude's** side opens the box too, seeded from his sentence — that is
+"take his wording and change one word of it", which had no gesture before.
+
+**Ctrl-S.** *"I cannot use shortcut Ctrl+S to save file."* Two holes, both the
+same shape: the chord was bound inside CodeMirror and inside the review pane's
+key handler, and everywhere else it fell through to the browser's "save page".
+Click the file rail, or the preview, or the ask box, reach for Ctrl-S, and you
+got a download dialog and an unsaved file — and inside the rewrite box, where
+`isTyping` bailed out before the review pane's own binding could run. Now `App`
+claims it at the window for the whole workbench (`saveNow`, a nonce, the same
+idiom as `jumpTo`), stepping aside for the review tab, and the review pane
+handles it even while you are typing. `event.defaultPrevented` is what keeps the
+editor's own binding from saving twice.
+
+---
+
 ## What has been exercised, and what has not
 
 **Run against the real paper (258 `.tex` files, 13,153 segments):** the
@@ -931,10 +977,10 @@ rectangles on page 1. The merge pane opened on the live session and read
 - **An Overleaf push.** `sync` refuses off-branch and on a dirty tree (both
   tested); the fetch/rebase/push itself has not been fired at the live bridge.
 - **`ui/` still has no unit test runner.** What it has now is `./probe/run.sh`
-  (section 29), which drives a real browser and re-runs tomorrow — but it covers
-  the rail, the editor bar and the preview column, and nothing else. Every claim
-  about the merge pane, the completion list and the PDF viewer still rests on
-  the one-off browser checks above. The completion bug in section 20 is the
-  shape this gap hides: types were clean, the backend was green, and the feature
-  did nothing. Whether to add a component runner as well is a real decision, not
-  a tidy-up, and it is Po Hung's to make.
+  (section 29), which drives a real browser and re-runs tomorrow. It covers the
+  rail, the editor bar, the preview column and — since section 30 — the merge
+  pane end to end, including the write. The completion list and the PDF viewer
+  are still only covered by the one-off browser checks above. The completion bug
+  in section 20 is the shape this gap hides: types were clean, the backend was
+  green, and the feature did nothing. Whether to add a component runner as well
+  is a real decision, not a tidy-up, and it is Po Hung's to make.

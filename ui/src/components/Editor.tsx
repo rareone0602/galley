@@ -183,6 +183,7 @@ export default function Editor({
   jumpTo,
   onShowInPdf,
   onText,
+  saveNow,
 }: {
   path: string | null
   reloadKey: number
@@ -198,6 +199,9 @@ export default function Editor({
    *  you type rather than on save, because the pane is there to be watched
    *  while you write. */
   onText?: (path: string, text: string) => void
+  /** Ctrl-S pressed somewhere else in the workbench. A changing number rather
+   *  than a boolean, so two presses in a row are two saves. */
+  saveNow?: number
 }) {
   const [host, setHost] = useState<HTMLDivElement | null>(null)
   const view = useRef<EditorView | null>(null)
@@ -285,6 +289,17 @@ export default function Editor({
       setError(String(e))
     }
   }, [])
+
+  /* Ctrl-S from anywhere else in the workbench. The keymap below has the same
+   * chord and wins whenever the caret is in the text; this is the same action
+   * arriving from the file rail, the preview pane, or the ask box — anywhere
+   * you might be standing when you reach for it. */
+  const lastSaveNow = useRef(saveNow)
+  useEffect(() => {
+    if (saveNow === undefined || saveNow === lastSaveNow.current) return
+    lastSaveNow.current = saveNow
+    void save()
+  }, [saveNow, save])
 
   /** Overleaf's arrow: put the line the cursor is on up on the printed page.
    *  Read at the moment of the gesture, never captured — the editor outlives

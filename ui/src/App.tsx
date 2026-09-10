@@ -55,6 +55,9 @@ export default function App() {
    * turn it off for the next one. */
   const [previewOffFor, setPreviewOffFor] = useState<string | null>(null)
   const [dirty, setDirty] = useState<Set<string>>(new Set())
+  /* Ctrl-S pressed outside the editor's own text. A number rather than a flag,
+   * so two presses are two saves. */
+  const [saveNow, setSaveNow] = useState(0)
   const [treeKey, setTreeKey] = useState(0)
   const [fileKey, setFileKey] = useState(0)
   const [jumpTo, setJumpTo] = useState<{ path: string; line: number; nonce: number } | null>(
@@ -143,6 +146,28 @@ export default function App() {
   const takeEditorText = useCallback((path: string, text: string) => {
     setLiveText({ path, text })
   }, [])
+
+  /* Ctrl-S is the workbench's, wherever you are standing.
+   *
+   * CodeMirror binds it too, so inside the text this listener never runs — the
+   * editor has already saved and called preventDefault by the time the press
+   * reaches the window. Everywhere else it used to fall through to the
+   * browser, which offered to save the *page*: click the file rail, or the
+   * preview, or the ask box, then reach for Ctrl-S, and you got a download
+   * dialog and an unsaved file. The review tab keeps the chord for itself,
+   * where it means "show me what Save would write". */
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.altKey || !(event.ctrlKey || event.metaKey)) return
+      if (event.key.toLowerCase() !== 's') return
+      if (event.defaultPrevented) return
+      if (tab === 'review') return
+      event.preventDefault()
+      if (tab === 'editor' && openPath) setSaveNow(Date.now())
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [tab, openPath])
 
   const openFile = useCallback((path: string) => {
     setOpenPath(path)
@@ -388,6 +413,7 @@ export default function App() {
                   jumpTo={jumpTo}
                   onShowInPdf={config?.builds_pdf ? showLineInPdf : undefined}
                   onText={takeEditorText}
+                  saveNow={saveNow}
                 />
               )}
               {tab === 'review' &&

@@ -26,6 +26,9 @@ import urllib.request
 
 import websockets
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import fixture  # noqa: E402  — the probe and the fixture agree on the sentences
+
 CHROME = os.environ.get(
     "GALLEY_PROBE_CHROME",
     os.path.expanduser("~/.cache/ms-playwright/chromium-1117/chrome-linux/chrome"),
@@ -35,6 +38,8 @@ APP = os.environ.get("GALLEY_PROBE_APP", "http://127.0.0.1:8127/")
 HERE = os.environ.get("GALLEY_PROBE_DIR", "/tmp/galley-probe")
 
 fails: list[str] = []
+#: The worktree the seeded session works in, so a check can look inside it.
+REVIEW_TREE = None
 
 def check(name, ok, detail=""):
     print(("  ok   " if ok else "  FAIL ") + name + ("" if ok else f"  <- {detail}"))
@@ -85,9 +90,68 @@ class Page:
         await self.until(f'document.querySelector(".editor-bar .path")?.title === "{path}"')
         await asyncio.sleep(0.4)
 
+    async def click_at(self, selector, fx=0.5, fy=0.5):
+        """A real click at a point inside an element, in page coordinates.
+
+        Not `element.click()`: *where* in the sentence you clicked is the thing
+        under test, and a synthetic click carries no coordinates."""
+        spot = await self.js(
+            "(() => { const r = document.querySelector(%r)?.getBoundingClientRect();"
+            " return r ? {x: r.left + r.width * %s, y: r.top + r.height * %s} : null })()"
+            % (selector, fx, fy)
+        )
+        if not spot:
+            return False
+        for kind in ("mousePressed", "mouseReleased"):
+            await self.send("Input.dispatchMouseEvent", type=kind, x=spot["x"], y=spot["y"],
+                            button="left", clickCount=1)
+        await asyncio.sleep(0.25)
+        return True
+
+    async def chord(self, key, code, vk, modifiers=0):
+        for kind in ("keyDown", "keyUp"):
+            await self.send("Input.dispatchKeyEvent", type=kind, key=key, code=code,
+                            windowsVirtualKeyCode=vk, nativeVirtualKeyCode=vk,
+                            modifiers=modifiers)
+        await asyncio.sleep(0.35)
+
+    async def ctrl_s(self):
+        await self.chord("s", "KeyS", 83, modifiers=2)
+
     async def shot(self, name):
         out = await self.send("Page.captureScreenshot", format="png")
         open(f"{HERE}/{name}.png", "wb").write(base64.b64decode(out["data"]))
+
+
+def seed_review():
+    """A session with changes in it, made without starting an agent.
+
+    The review pane is the surface that matters most and the one nothing could
+    reach: putting a diff in front of the browser used to mean paying for a
+    turn. `start: false` builds the worktree and stops there; the commit below
+    is the one the turn would have ended with, so the pane cannot tell the
+    difference. Returns the worktree path, or None if the server refused.
+    """
+    body = json.dumps({"prompt": "probe: rewrite two sentences", "start": False}).encode()
+    request = urllib.request.Request(
+        f"{APP}api/sessions", body, {"Content-Type": "application/json"}
+    )
+    row = json.load(urllib.request.urlopen(request))
+    tree = row["worktree_path"]
+    target = f"{tree}/main.tex"
+    with open(target, encoding="utf-8") as handle:
+        text = handle.read()
+    for was, now in fixture.PROPOSED:
+        assert was in text, was
+        text = text.replace(was, now)
+    with open(target, "w", encoding="utf-8") as handle:
+        handle.write(text)
+    subprocess.run(
+        ["git", "-C", tree, "-c", "user.email=probe@galley", "-c", "user.name=probe",
+         "commit", "-qam", "probe: proposed changes"],
+        check=True,
+    )
+    return tree
 
 
 async def main():
@@ -95,6 +159,10 @@ async def main():
     # not, so a kept cache serves the last build and the run silently checks
     # code that is no longer there — which cost an afternoon once already.
     shutil.rmtree(f"{HERE}/chrome", ignore_errors=True)
+    # Before the page loads, so the session is in the first list it fetches.
+    global REVIEW_TREE
+    REVIEW_TREE = seed_review()
+    print(f"seeded a session to review: {REVIEW_TREE}")
     chrome = subprocess.Popen(
         [CHROME, "--headless=new", f"--remote-debugging-port={PORT}", "--no-sandbox",
          "--disable-gpu", "--window-size=1600,1000", f"--user-data-dir={HERE}/chrome", APP],
@@ -269,6 +337,97 @@ async def run(page):
     await page.open_file("notes.md")
     check("and the next file still previews",
           await page.until('!!document.querySelector(".preview-pane")', 5))
+
+    print("\n-- Ctrl-S from outside the text --")
+    await page.open_file("helper.ts")
+    await page.js('document.querySelector(".cm-content").focus()')
+    await page.send("Input.insertText", text="// probe\n")
+    check("typing makes the file unsaved",
+          await page.until('!!document.querySelector(".editor-bar .badge.amber")', 5))
+    # Stand somewhere else, the way you do after clicking a file or the PDF.
+    await page.js('document.querySelector(".rail")?.click(); document.activeElement.blur()')
+    check("focus really left the editor",
+          await page.js('document.activeElement?.classList.contains("cm-content")') is not True)
+    await page.ctrl_s()
+    check("Ctrl S still saves",
+          await page.until('!document.querySelector(".editor-bar .badge.amber")', 5))
+    check("and the bar says it saved",
+          "saved" in (await page.js('document.querySelector(".editor-bar")?.textContent') or ""))
+
+    # The agent's house style comes from the project, not from Galley: its cwd
+    # is this worktree, so a CLAUDE.md at the project root is read every turn
+    # and Galley stays project-agnostic. Getting the file there is Galley's job.
+    check("the project's own CLAUDE.md reaches the agent's worktree",
+          os.path.isfile(f"{REVIEW_TREE}/CLAUDE.md"), f"{REVIEW_TREE}/CLAUDE.md")
+
+    print("\n-- the review pane: rewrite in place, Claude's still beside you --")
+    await page.js('document.querySelector(".session")?.click()')
+    clicked = await page.until(
+        '(() => { const b = [...document.querySelectorAll(".tabs button")]'
+        '.find(b => b.textContent.startsWith("Review")); if (!b || b.disabled) return false;'
+        ' b.click(); return true })()', 8)
+    check("the review tab opens", clicked)
+    check("both changes are listed",
+          await page.until('document.querySelectorAll(".drow.change").length === 2', 8))
+    check("your sentence and Claude's are side by side",
+          await page.js('!!document.querySelector(".drow.change .cell.old") '
+                        '&& !!document.querySelector(".drow.change .cell.new")'))
+
+    # Reading a sentence more closely is not a decision. This was a real
+    # regression the moment a single click opened the box: a stray click ticked
+    # a change off the counter without a word being typed.
+    await page.click_at(".drow.change .cell.old .txt", fx=0.5, fy=0.5)
+    check("clicking in opens a box",
+          await page.until('!!document.querySelector(".drow.change.editing textarea")', 5))
+    await page.chord("Escape", "Escape", 27)
+    check("leaving it untouched answers nothing",
+          await page.js('document.querySelectorAll(".drow.change.rewritten").length') == 0)
+    check("and both changes are still to go",
+          "2 to go" in (await page.js('document.querySelector(".where")?.textContent') or ""),
+          await page.js('document.querySelector(".where")?.textContent'))
+
+    # Click near the start of your own sentence, the way you would to change a
+    # word at the front of it.
+    await page.click_at(".drow.change .cell.old .txt", fx=0.08, fy=0.5)
+    check("clicking your sentence opens a box in that same cell",
+          await page.until('document.querySelectorAll(".drow.change.editing .cell.old.writing textarea").length === 1', 5))
+    check("the row keeps its three columns",
+          await page.js('document.querySelector(".drow.change.editing")?.children.length') == 3)
+    check("Claude's wording is still on screen beside it",
+          (await page.js('document.querySelector(".drow.change.editing .cell.new")?.textContent') or "")
+          .find("Acceptance is decided") >= 0)
+    caret = await page.js('document.querySelector(".drow.change.editing textarea")?.selectionStart')
+    length = await page.js('document.querySelector(".drow.change.editing textarea")?.value.length')
+    check("the caret lands where you clicked, not at the end",
+          isinstance(caret, int) and isinstance(length, int) and caret < length / 2,
+          f"caret {caret} of {length}")
+    check("the box has your wording in it, not Claude's",
+          (await page.js('document.querySelector(".drow.change.editing textarea")?.value') or "")
+          .startswith("Acceptance is therefore"))
+    check("and no scrollbar hides half the comparison",
+          await page.js('(() => { const t = document.querySelector(".drow.change.editing textarea");'
+                        ' return t ? t.scrollHeight <= t.clientHeight + 2 : false })()'))
+    await page.shot("review-editing")
+
+    await page.send("Input.insertText", text="Kernel a")
+    check("typing lands at the caret",
+          (await page.js('document.querySelector(".drow.change.editing textarea")?.value') or "")
+          .startswith("Kernel aAcceptance"))
+    check("and marks the change as yours, rewritten",
+          await page.until('!!document.querySelector(".drow.change.rewritten")', 5))
+
+    await page.ctrl_s()
+    check("Ctrl S inside the box shows the save plan, not the browser's",
+          await page.until('!!document.querySelector(".save-plan")', 5))
+    check("the plan names the file it would write",
+          "main.tex" in (await page.js('document.querySelector(".save-plan")?.textContent') or ""))
+    await page.js('[...document.querySelectorAll(".save-plan button")].find(b=>b.textContent.startsWith("Write")).click()')
+    check("Save writes it",
+          await page.until('!!document.querySelector(".save-plan") === false', 8))
+
+    await page.open_file("main.tex")
+    check("and the rewrite is really in the file now",
+          "Kernel aAcceptance" in (await page.js('document.querySelector(".cm-content")?.textContent') or ""))
 
     check("nothing complained in the console", not page.noise, "; ".join(page.noise[:4]))
 
