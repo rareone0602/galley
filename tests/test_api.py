@@ -17,6 +17,9 @@ def test_config_reports_the_paper_and_the_backend(client) -> None:
     body = client.get("/api/config").json()
     assert body["main_branch"] == "main"
     assert body["max_concurrent_sessions"] == 2
+    # Which Claude answers is the one thing about a session you cannot tell by
+    # reading what it wrote, so the toolbar shows it.
+    assert body["agent_model"] == "opus"
 
 
 def test_creating_a_session_makes_a_worktree_and_a_branch(client, paper_repo, git_helper) -> None:

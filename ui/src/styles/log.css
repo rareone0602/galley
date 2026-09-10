@@ -22,3 +22,19 @@
 }
 .ev.err { border-left-color: var(--content-danger); color: var(--content-danger); }
 .ev.thinking { border-left-color: var(--neutral-30); color: var(--content-secondary); font-style: italic; }
+.ev.thinking p { margin: 3px 0; white-space: pre-wrap; }
+
+/* The caret that follows text still arriving. It is the only thing that
+   distinguishes a block being written from the finished one that replaces it,
+   so nothing on screen moves when the two swap over. */
+.caret {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 1px;
+  vertical-align: text-bottom;
+  background: var(--bg-accent);
+  animation: caret-blink 1s step-end infinite;
+}
+@keyframes caret-blink { 50% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .caret { animation: none; } }

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -63,6 +64,13 @@ def system_appendix(cfg: Config) -> str:
     if cfg.paths.code_mirror is not None:
         rules.append(CODEBASE_RULE)
     return "\n".join(rules)
+
+
+#: Events that are shown and never kept. A delta is one fragment of a sentence
+#: that arrives again, whole, a moment later as an ordinary `text` event — so
+#: writing it to the log would store the same paragraph a hundred times over
+#: and make every reconnect replay it.
+LIVE_ONLY = frozenset({"delta"})
 
 
 class SessionLimitReached(RuntimeError):
@@ -264,9 +272,22 @@ class AgentService:
     # -- the run ----------------------------------------------------------
 
     def _options(self, row: dict) -> ClaudeAgentOptions:
+        agent = self.cfg.agent
         return ClaudeAgentOptions(
             cwd=row["worktree_path"],
             can_use_tool=writes_only_inside(Path(row["worktree_path"])),
+            # Opus by default. This is a workbench for one careful patch at a
+            # time, read sentence by sentence by a human who will reject half
+            # of it; the model is the cheapest part of that loop to get right.
+            model=agent.model,
+            fallback_model=agent.fallback_model,
+            # Both None unless the config asks for them.
+            max_turns=agent.max_turns,
+            max_budget_usd=agent.max_budget_usd,
+            # Sentences as they are written, rather than a paragraph at a time
+            # when the block closes. The deltas are shown and thrown away; the
+            # finished block is what gets kept.
+            include_partial_messages=agent.stream,
             # Empty unless the project names a codebase: `add_dirs` grants
             # access, so an absent one must not become a path anyway.
             add_dirs=[str(d) for d in (self.cfg.paths.code_mirror,) if d is not None],
@@ -289,6 +310,9 @@ class AgentService:
         try:
             async for message in query(prompt=prompt, options=self._options(row)):
                 for event in normalise(message):
+                    if event["kind"] in LIVE_ONLY:
+                        await self._emit_live(session_id, event["kind"], event["payload"])
+                        continue
                     if event["kind"] == "session" and event["payload"].get("claude_session_id"):
                         self.db.update_session(
                             session_id,
@@ -330,6 +354,26 @@ class AgentService:
         event = self.db.append_event(kind, payload, session_id=session_id)
         await self.bus.publish(f"session:{session_id}", event)
 
+    async def _emit_live(self, session_id: str, kind: str, payload: Any) -> None:
+        """Show it now; keep nothing.
+
+        `id` is None, and that is the signal the whole way down: the SSE route
+        forwards it without advancing the cursor, so a tab that reconnects
+        rebuilds the conversation from the finished blocks and never from
+        half-written ones.
+        """
+        await self.bus.publish(
+            f"session:{session_id}",
+            {
+                "id": None,
+                "session_id": session_id,
+                "job_id": None,
+                "kind": kind,
+                "payload": payload,
+                "ts": time.time(),
+            },
+        )
+
 
 def _commit_worktree(worktree: Path) -> dict:
     """Commit whatever the agent wrote, so the branch is the record.
@@ -359,6 +403,12 @@ def normalise(message: Any) -> list[dict]:
     """
     name = type(message).__name__
     events: list[dict] = []
+
+    if name == "StreamEvent":
+        return _deltas(getattr(message, "event", {}) or {})
+
+    if name == "RateLimitEvent":
+        return _rate_limit(getattr(message, "rate_limit_info", None))
 
     if name == "SystemMessage":
         data = getattr(message, "data", {}) or {}
@@ -428,6 +478,58 @@ def normalise(message: Any) -> list[dict]:
 
     events.append({"kind": "other", "payload": {"type": name, "repr": _stringify(message)[:2000]}})
     return events
+
+
+#: The delta shapes the API streams, and the event kind each one belongs to.
+#: Anything else in the stream — message_start, block boundaries, usage
+#: bookkeeping — is already carried by the finished message, so it is dropped.
+DELTA_KINDS = {"text_delta": "text", "thinking_delta": "thinking"}
+
+
+def _deltas(event: dict) -> list[dict]:
+    """One fragment of a sentence, on its way to the screen.
+
+    `index` is which block of the current message it belongs to, so a reply
+    that thinks first and then writes lands in two places rather than one
+    run-on. Nothing here is kept; see `LIVE_ONLY`.
+    """
+    if event.get("type") != "content_block_delta":
+        return []
+    delta = event.get("delta") or {}
+    role = DELTA_KINDS.get(delta.get("type", ""))
+    if role is None:
+        return []
+    text = delta.get("text") if role == "text" else delta.get("thinking")
+    if not text:
+        return []
+    return [
+        {
+            "kind": "delta",
+            "payload": {"index": int(event.get("index", 0)), "role": role, "text": text},
+        }
+    ]
+
+
+def _rate_limit(info: Any) -> list[dict]:
+    """How much of the subscription window is gone.
+
+    Worth its own event because this is the one failure that looks like
+    Galley breaking and is not: the agent simply stops answering, and the
+    reason lives in a window that resets on a clock nothing on screen shows.
+    """
+    if info is None:
+        return []
+    return [
+        {
+            "kind": "rate_limit",
+            "payload": {
+                "status": getattr(info, "status", None),
+                "window": getattr(info, "rate_limit_type", None),
+                "used": getattr(info, "utilization", None),
+                "resets_at": getattr(info, "resets_at", None),
+            },
+        }
+    ]
 
 
 def _stringify(value: Any) -> str:

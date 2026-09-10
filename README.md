@@ -12,10 +12,14 @@ departs from it and why — including the parts that were cut.
 ```bash
 cp galley.example.toml galley.local.toml   # then edit the paths
 uv sync --extra dev
-uv run pytest -q
 (cd ui && npm install && npm run build)
 ./run.sh                                   # http://127.0.0.1:8124
 ```
+
+Working on Galley itself: `./dev.sh` runs it with the UI hot-reloading from
+source and the backend restarting on change, and `./check.sh` runs everything
+that can be checked without a browser. [`docs/development.md`](docs/development.md)
+is the guide — the seams, the traps, and how to verify UI work.
 
 ---
 

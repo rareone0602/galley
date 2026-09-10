@@ -217,3 +217,132 @@ def test_galley_commits_the_branch_because_the_agent_has_no_shell(paper_repo, gi
     assert result["committed"] is True
     assert "Claude: proposed changes" in git_helper(tree.path, "log", "-1", "--format=%s")
     assert git_helper(tree.path, "status", "--porcelain") == ""
+
+
+# -- which model, and how its words reach the screen -----------------------
+
+
+class StreamEvent(_Block): ...
+class RateLimitEvent(_Block): ...
+
+
+def test_the_agent_is_opus_unless_the_config_says_otherwise(agents) -> None:
+    opts = _options(agents)
+    assert opts.model == "opus"
+    assert opts.fallback_model is None
+
+
+def test_the_configured_model_and_caps_reach_the_sdk(config, tmp_path) -> None:
+    """Pinned against the SDK's own dataclass: a renamed field fails here."""
+    import dataclasses
+
+    from galley.config import Agent
+
+    tuned = dataclasses.replace(
+        config,
+        agent=Agent(model="claude-sonnet-5", fallback_model="haiku", max_turns=7, max_budget_usd=1.5),
+    )
+    service = AgentService(tuned, Database(tuned.db_path), EventBus())
+    opts = _options(service)
+    assert opts.model == "claude-sonnet-5"
+    assert opts.fallback_model == "haiku"
+    assert opts.max_turns == 7
+    assert opts.max_budget_usd == 1.5
+
+
+def test_partial_messages_are_asked_for_so_text_arrives_as_it_is_written(agents) -> None:
+    assert _options(agents).include_partial_messages is True
+
+
+def test_a_text_delta_becomes_one_live_fragment() -> None:
+    from galley.services.agent import normalise
+
+    events = normalise(
+        StreamEvent(
+            event={
+                "type": "content_block_delta",
+                "index": 1,
+                "delta": {"type": "text_delta", "text": "The ablation "},
+            }
+        )
+    )
+    assert events == [
+        {"kind": "delta", "payload": {"index": 1, "role": "text", "text": "The ablation "}}
+    ]
+
+
+def test_a_thinking_delta_is_kept_apart_from_the_reply() -> None:
+    from galley.services.agent import normalise
+
+    events = normalise(
+        StreamEvent(
+            event={
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {"type": "thinking_delta", "thinking": "Check §4.1 first"},
+            }
+        )
+    )
+    assert events[0]["payload"]["role"] == "thinking"
+    assert events[0]["payload"]["text"] == "Check §4.1 first"
+
+
+@pytest.mark.parametrize(
+    "event",
+    [
+        {"type": "message_start", "message": {}},
+        {"type": "content_block_start", "index": 0, "content_block": {"type": "text"}},
+        {"type": "content_block_stop", "index": 0},
+        {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": ""}},
+        {"type": "content_block_delta", "index": 0, "delta": {"type": "signature_delta"}},
+    ],
+)
+def test_the_rest_of_the_stream_is_dropped(event: dict) -> None:
+    """Everything else in the stream is already carried by the finished
+    message, and showing it twice is the one thing a live log must not do."""
+    from galley.services.agent import normalise
+
+    assert normalise(StreamEvent(event=event)) == []
+
+
+async def test_a_live_fragment_is_shown_and_never_written_down(agents) -> None:
+    """The invariant behind the whole streaming path.
+
+    A delta arrives again, whole, a moment later as an ordinary `text` event.
+    Keeping both would store every paragraph a hundred times over and replay
+    the half-written copies at every reconnect.
+    """
+    async with agents.bus.subscribe("session:s1") as queue:
+        await agents._emit_live("s1", "delta", {"index": 0, "role": "text", "text": "hi"})
+        published = await queue.get()
+
+    assert published["id"] is None
+    assert published["payload"]["text"] == "hi"
+    assert agents.db.session_events("s1") == []
+
+
+def test_an_ephemeral_event_gets_no_sse_id() -> None:
+    """The browser resumes from the last id it saw; a fragment is in no log to
+    resume from, so pointing it there would lose everything after it."""
+    from galley.routes.sessions import _sse
+
+    assert "id:" not in _sse({"id": None, "kind": "delta", "payload": {}})
+    assert _sse({"id": 12, "kind": "text", "payload": {}}).startswith("id: 12\n")
+
+
+def test_a_rate_limit_becomes_something_the_log_can_say() -> None:
+    """The one failure that looks like Galley breaking and is not: the agent
+    simply stops, and the reason is a window that resets on an unseen clock."""
+    from galley.services.agent import normalise
+
+    info = _Block(
+        status="allowed_warning", rate_limit_type="five_hour", utilization=0.87, resets_at=1757500000
+    )
+    events = normalise(RateLimitEvent(rate_limit_info=info))
+    assert events[0]["kind"] == "rate_limit"
+    assert events[0]["payload"] == {
+        "status": "allowed_warning",
+        "window": "five_hour",
+        "used": 0.87,
+        "resets_at": 1757500000,
+    }

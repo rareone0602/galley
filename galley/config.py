@@ -65,6 +65,32 @@ class Limits:
 
 
 @dataclass(frozen=True)
+class Agent:
+    """Which Claude answers, and the two ways a turn is allowed to end early.
+
+    `model` is an alias rather than a dated identifier on purpose: "opus" keeps
+    meaning the current Opus after the next release, and a workbench whose whole
+    job is one careful patch at a time wants the most capable model, not the
+    cheapest. Write a full id here instead when you need a specific one pinned.
+
+    The caps are off by default. They exist because a session runs on your
+    subscription window, and a turn that goes wrong goes wrong slowly.
+    """
+
+    model: str = "opus"
+    #: Used when `model` is unavailable — rate-limited, or retired. Unset means
+    #: the turn fails rather than quietly answering as something else.
+    fallback_model: str | None = None
+    #: Stop the turn after this many exchanges. None is the CLI's own default.
+    max_turns: int | None = None
+    #: Stop the turn when it has cost this much. None means no ceiling.
+    max_budget_usd: float | None = None
+    #: Show the agent's sentences as they are written rather than in bursts at
+    #: the end of a block. Costs nothing; it is the same tokens, sooner.
+    stream: bool = True
+
+
+@dataclass(frozen=True)
 class Usage:
     """Whether to keep a local record of how the workbench is used.
 
@@ -86,6 +112,7 @@ class Config:
     limits: Limits
     source: Path
     usage: Usage = Usage()
+    agent: Agent = Agent()
 
     @property
     def db_path(self) -> Path:
@@ -110,7 +137,19 @@ class Config:
         return self.main_tex_path.is_file()
 
 
+#: Names the config file for a Galley started without `--config`. Set by the
+#: `--reload` path, because uvicorn's reloader re-imports the app in a fresh
+#: process that never saw the command line.
+CONFIG_ENV_VAR = "GALLEY_CONFIG"
+
+
 def find_config(start: Path | None = None) -> Path:
+    named = os.environ.get(CONFIG_ENV_VAR)
+    if named:
+        candidate = Path(named).expanduser().resolve()
+        if not candidate.is_file():
+            raise ConfigError(f"{CONFIG_ENV_VAR} points at {candidate}, which is not a file")
+        return candidate
     here = (start or Path.cwd()).resolve()
     for d in [here, *here.parents]:
         candidate = d / CONFIG_NAME
@@ -120,6 +159,31 @@ def find_config(start: Path | None = None) -> Path:
         f"no {CONFIG_NAME} found in {here} or any parent. "
         f"Copy galley.example.toml to {CONFIG_NAME} and edit it."
     )
+
+
+def _text(value: object) -> str | None:
+    """A setting that is either a real string or genuinely absent."""
+    text = str(value).strip() if value is not None else ""
+    return text or None
+
+
+def _count(value: object, key: str, source: Path) -> int | None:
+    """A positive whole number, or nothing. Zero would mean "never answer"."""
+    if value is None:
+        return None
+    number = int(value)
+    if number < 1:
+        raise ConfigError(f"{source}: [agent] {key} must be at least 1, not {number}")
+    return number
+
+
+def _amount(value: object, key: str, source: Path) -> float | None:
+    if value is None:
+        return None
+    number = float(value)
+    if number <= 0:
+        raise ConfigError(f"{source}: [agent] {key} must be more than 0, not {number:g}")
+    return number
 
 
 def load(path: Path | None = None) -> Config:
@@ -168,7 +232,16 @@ def load(path: Path | None = None) -> Config:
     u = raw.get("usage", {})
     usage = Usage(enabled=bool(u.get("enabled", True)))
 
-    cfg = Config(paths, paper, server, limits, path, usage)
+    a = raw.get("agent", {})
+    agent = Agent(
+        model=str(a.get("model") or Agent.model),
+        fallback_model=_text(a.get("fallback_model")),
+        max_turns=_count(a.get("max_turns"), "max_turns", path),
+        max_budget_usd=_amount(a.get("max_budget_usd"), "max_budget_usd", path),
+        stream=bool(a.get("stream", True)),
+    )
+
+    cfg = Config(paths, paper, server, limits, path, usage, agent)
     validate(cfg, raw_paper=p)
     return cfg
 

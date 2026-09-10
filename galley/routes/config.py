@@ -25,6 +25,9 @@ def register(app: FastAPI, d: Deps) -> None:
             "builds_pdf": cfg.builds_a_pdf,
             "publish": f"{cfg.paper.publish_remote}/{cfg.paper.publish_branch}",
             "max_concurrent_sessions": cfg.limits.max_concurrent_sessions,
+            # Which Claude answers. Worth showing: it is the one thing about a
+            # session you cannot tell from reading what it wrote.
+            "agent_model": cfg.agent.model,
             "latexdiff": latex.latexdiff_available(),
             # The browser asks once and then either records or does not; it
             # never posts into a switched-off log.

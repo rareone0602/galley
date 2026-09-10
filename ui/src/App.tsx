@@ -192,6 +192,9 @@ export default function App() {
           {config ? config.paper_repo.split('/').slice(-1)[0] : '…'}
         </span>
         <span className="meta mono">{config?.main_branch ?? ''}</span>
+        <span className="meta mono" title="the model your sessions talk to">
+          {config?.agent_model ?? ''}
+        </span>
         <span className="spacer" />
         <span className="meta">{config?.publish ?? ''}</span>
         {!pdfOpen && (

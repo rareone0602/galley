@@ -111,6 +111,8 @@ export type Config = {
   /** `remote/branch`, the place Sync pushes to. */
   publish: string
   max_concurrent_sessions: number
+  /** Which Claude answers — an alias like `opus`, or a pinned model id. */
+  agent_model: string
   latexdiff: boolean
   /** Whether Galley keeps a local record of how you use it. Never leaves this
    *  machine; `[usage] enabled` in the config is the switch. */

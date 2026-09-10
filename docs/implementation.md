@@ -609,6 +609,92 @@ shell's callback also runs for a click in the compile-problem list, which is a
 different gesture). Both showed up as a count of two against a single gesture
 the first time it was exercised.
 
+### 25. Opus by default, and sentences as they arrive
+
+Po Hung: *"Make the max use of Claude SDK / default agent is opus."*
+
+Until now Galley set five options on the SDK — the working directory, the
+mounted codebase, the environment, the permission guard and the resume id — and
+took whatever model the CLI happened to default to. Two things changed.
+
+**The model is now Galley's decision, and it is Opus.** `[agent] model` in the
+config, defaulting to `"opus"`. An alias rather than a dated identifier, so it
+keeps meaning the current Opus after the next release; write a full id there
+instead when you need one pinned. The reasoning is the shape of the loop rather
+than a preference: Galley proposes one careful patch at a time, a human reads
+every sentence of it, and half of it is rejected or rewritten. The model is the
+cheapest part of that loop to get right. `fallback_model` is beside it and unset
+by default — a turn that cannot run as Opus should fail plainly rather than
+quietly answer as something else.
+
+`max_turns` and `max_budget_usd` are there too, both off. They exist because a
+session spends a subscription window, and a turn that goes wrong goes wrong
+slowly. Zero is refused for both at load: it means "never answer", which is a
+typo and not a setting.
+
+**Text now arrives as it is written.** `include_partial_messages` makes the SDK
+emit `StreamEvent`s — the raw API stream — alongside the finished messages.
+Galley turns the text and thinking deltas into `delta` events and drops the
+rest, because everything else in the stream is already carried by the finished
+message and showing a thing twice is the one mistake a live log must not make.
+
+The interesting decision is what happens to them afterwards: **nothing**. A
+delta is published on the bus and never written to the `events` table. Its
+`id` is `None`, and that single fact carries the whole way down — the SSE route
+forwards it without advancing the cursor and without an `id:` line, so a tab
+that reconnects rebuilds the conversation from the finished blocks and never
+from half-written ones. The browser holds the fragments in component state and
+throws them away the moment a kept event arrives. Had they been stored, every
+paragraph would be in the log a hundred times over and every reconnect would
+replay it a character at a time.
+
+On screen, a streaming block is rendered exactly like the finished one plus a
+caret, so nothing moves when the two swap over.
+
+**A rate limit is now something the log can say.** The SDK emits a
+`RateLimitEvent` when the window's status changes, and Galley keeps it. This is
+the one failure that looks like Galley breaking and is not: the agent simply
+stops answering, and the reason is a clock nothing else on the screen shows. It
+is displayed only when it is not simply fine — approaching, or reached, with the
+time it resets.
+
+The toolbar shows the model beside the branch. It is the one thing about a
+session you cannot work out by reading what it wrote.
+
+### 26. Two servers while you are working on Galley
+
+Po Hung: *"Refactor the galley sub project for the ease of development."*
+
+The friction was concrete: every UI change, however small, needed
+`npm run build` before it could be seen, and `--reload` was a flag the argument
+parser accepted and nothing used — `uvicorn.run(create_app(cfg), ...)` is passed
+an app object, and reloading requires an import string.
+
+`./dev.sh` runs both halves at once. Vite serves the UI from source and
+forwards `/api` to the backend, which now really does reload. Editing a
+component swaps it into the running page without losing what you had open.
+
+Making `--reload` work needed one small thing elsewhere: uvicorn's reloader
+re-imports the app in a fresh process that never saw the command line, so the
+config has to travel in the environment. `GALLEY_CONFIG` names it, and
+`find_config` looks there before walking up from the working directory.
+
+`./check.sh` is the other half — tests, then TypeScript, then a production
+build, in the order that fails fastest. It is deliberately honest about what it
+does not cover: there is no UI test runner, so green means the types agree and
+the bundle builds.
+
+The bundle is now four chunks rather than one. PDF.js, CodeMirror and React
+together were 800 KB of the 968 KB total and none of them changes when Galley
+does; splitting them out means an ordinary edit rebuilds and re-downloads only
+Galley's own 146 KB, and the >500 KB warning is gone. `@codemirror/legacy-modes`
+is deliberately not in that list — it publishes no root entry, only
+`…/mode/<name>`, and naming it fails the build.
+
+`docs/development.md` is new and holds the rest: the seams and what adding one
+costs, the traps that eat an afternoon, and how to verify UI work in a real
+browser given that no test suite will do it for you.
+
 ## What has been exercised, and what has not
 
 **Run against the real paper (258 `.tex` files, 13,153 segments):** the

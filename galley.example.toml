@@ -7,7 +7,31 @@
 #
 # To run Galley for a second project, put a galley.local.toml in that project's
 # own directory and start it there — `galley` walks up from the working
-# directory to find one, or takes `--config`. Give it a different [server] port
+# directory to find one, or takes `--config`. Give it a different [agent]
+# Which Claude your sessions talk to.
+#
+# An alias — "opus", "sonnet", "haiku" — keeps meaning the current model of
+# that family after the next release; a full id like "claude-opus-4-5" pins one.
+# Opus is the default because this is a workbench for one careful patch at a
+# time, read sentence by sentence by a human who will reject half of it: the
+# model is the cheapest part of that loop to get right.
+model          = "opus"
+
+# Used when `model` is unavailable — rate-limited, or retired. Leave it out and
+# the turn fails plainly rather than quietly answering as something else.
+# fallback_model = "sonnet"
+
+# Two ways a turn may stop early. Both are off by default. They exist because a
+# session spends your subscription window, and a turn that goes wrong goes
+# wrong slowly.
+# max_turns      = 30
+# max_budget_usd = 2.00
+
+# Show sentences as they are written rather than a block at a time. It is the
+# same tokens, sooner; the half-written copies are never written to the log.
+stream         = true
+
+[server] port
 # and a different [paths] state_dir, or the two will fight over the database.
 
 [paths]

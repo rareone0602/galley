@@ -148,3 +148,92 @@ def test_the_completion_index_is_empty_rather_than_absent(bare_client) -> None:
     to offer, which the editor renders as no suggestions."""
     body = bare_client.get("/api/project/index").json()
     assert body["citations"] == [] and body["macros"] == []
+
+
+# -- which Claude answers, and when a turn stops ------------------------------
+
+
+def _agent_config(tmp_path: Path, paper_repo: Path, body: str):
+    """A config that is nothing but a paper repo plus the [agent] table given."""
+    path = _write(
+        tmp_path / "agent" / "galley.local.toml",
+        f"[paths]\npaper_repo = '{paper_repo}'\n"
+        f"state_dir = '{tmp_path / 'agent-state'}'\n{body}",
+    )
+    return load(path)
+
+
+def test_opus_is_the_default_and_nothing_stops_a_turn_early(bare_config) -> None:
+    """The ask: a workbench for one careful patch at a time gets the best model.
+
+    An alias rather than a dated id, so it keeps meaning the current Opus.
+    """
+    assert bare_config.agent.model == "opus"
+    assert bare_config.agent.fallback_model is None
+    assert bare_config.agent.max_turns is None
+    assert bare_config.agent.max_budget_usd is None
+    assert bare_config.agent.stream is True
+
+
+def test_the_agent_table_is_read_when_it_is_there(tmp_path: Path, paper_repo: Path) -> None:
+    cfg = _agent_config(
+        tmp_path,
+        paper_repo,
+        "\n[agent]\nmodel = 'claude-sonnet-5'\nfallback_model = 'haiku'\n"
+        "max_turns = 20\nmax_budget_usd = 2.5\nstream = false\n",
+    )
+    assert cfg.agent.model == "claude-sonnet-5"
+    assert cfg.agent.fallback_model == "haiku"
+    assert cfg.agent.max_turns == 20
+    assert cfg.agent.max_budget_usd == 2.5
+    assert cfg.agent.stream is False
+
+
+def test_an_empty_model_is_the_same_as_not_naming_one(tmp_path: Path, paper_repo: Path) -> None:
+    cfg = _agent_config(tmp_path, paper_repo, "\n[agent]\nmodel = ''\nfallback_model = '  '\n")
+    assert cfg.agent.model == "opus"
+    assert cfg.agent.fallback_model is None
+
+
+@pytest.mark.parametrize(
+    "table, said",
+    [
+        ("\n[agent]\nmax_turns = 0\n", "max_turns"),
+        ("\n[agent]\nmax_budget_usd = 0\n", "max_budget_usd"),
+        ("\n[agent]\nmax_budget_usd = -1.5\n", "max_budget_usd"),
+    ],
+)
+def test_a_cap_that_would_stop_every_turn_is_refused(
+    tmp_path: Path, paper_repo: Path, table: str, said: str
+) -> None:
+    """Zero turns means "never answer", which is a typo, not a setting."""
+    with pytest.raises(ConfigError) as exc:
+        _agent_config(tmp_path, paper_repo, table)
+    assert said in str(exc.value)
+
+
+# -- finding the config at all ------------------------------------------------
+
+
+def test_the_environment_can_name_the_config(
+    tmp_path: Path, paper_repo: Path, monkeypatch
+) -> None:
+    """How `--reload` survives: uvicorn's reloader re-imports the app in a new
+    process that never saw the command line."""
+    from galley.config import CONFIG_ENV_VAR, find_config
+
+    named = _write(
+        tmp_path / "elsewhere" / "galley.local.toml", f"[paths]\npaper_repo = '{paper_repo}'\n"
+    )
+    monkeypatch.setenv(CONFIG_ENV_VAR, str(named))
+    assert find_config(start=tmp_path) == named
+    assert load().source == named
+
+
+def test_an_environment_pointing_at_nothing_says_so(tmp_path: Path, monkeypatch) -> None:
+    from galley.config import CONFIG_ENV_VAR, find_config
+
+    monkeypatch.setenv(CONFIG_ENV_VAR, str(tmp_path / "not-here.toml"))
+    with pytest.raises(ConfigError) as exc:
+        find_config()
+    assert CONFIG_ENV_VAR in str(exc.value)

@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
 
 import uvicorn
 
-from .config import ConfigError, load
+from .config import CONFIG_ENV_VAR, ConfigError, load
 
 
 def main() -> int:
@@ -18,7 +19,11 @@ def main() -> int:
     parser.add_argument("--config", type=Path, default=None)
     parser.add_argument("--port", type=int, default=None)
     parser.add_argument("--bind", type=str, default=None)
-    parser.add_argument("--reload", action="store_true")
+    parser.add_argument(
+        "--reload",
+        action="store_true",
+        help="restart the backend when a Python file under galley/ changes",
+    )
 
     sub = parser.add_subparsers(dest="command")
     look = sub.add_parser(
@@ -55,6 +60,7 @@ def main() -> int:
     print(f"galley: paper  {cfg.paths.paper_repo}")
     if cfg.paths.code_mirror is not None:
         print(f"galley: code   {cfg.paths.code_mirror}")
+    print(f"galley: agent  {cfg.agent.model}" + _caps(cfg.agent))
     if not cfg.builds_a_pdf:
         print(
             f"galley: no {cfg.paper.main_tex} in the paper — the PDF, SyncTeX "
@@ -63,10 +69,37 @@ def main() -> int:
     print(f"galley: config {cfg.source}")
     print(f"galley: serving on http://{host}:{port}")
 
+    if args.reload:
+        # The reloader runs the app in a fresh process, which never saw this
+        # command line — hence an import string and the config in the
+        # environment, rather than the object we already built.
+        os.environ[CONFIG_ENV_VAR] = str(cfg.source)
+        print("galley: reloading on changes under galley/")
+        uvicorn.run(
+            "galley.app:create_app",
+            factory=True,
+            host=host,
+            port=port,
+            reload=True,
+            reload_dirs=[str(Path(__file__).resolve().parent)],
+            log_level="info",
+        )
+        return 0
+
     from .app import create_app
 
     uvicorn.run(create_app(cfg), host=host, port=port, log_level="info")
     return 0
+
+
+def _caps(agent) -> str:
+    """The limits, when there are any. Silence means nothing stops a turn early."""
+    said = []
+    if agent.max_turns is not None:
+        said.append(f"{agent.max_turns} turns")
+    if agent.max_budget_usd is not None:
+        said.append(f"${agent.max_budget_usd:g}")
+    return f" (stops at {' or '.join(said)})" if said else ""
 
 
 def _usage(cfg, args) -> int:

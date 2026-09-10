@@ -109,7 +109,12 @@ def register(app: FastAPI, d: Deps) -> None:
                     except asyncio.TimeoutError:
                         yield ": keep-alive\n\n"
                         continue
-                    if event.get("id", 0) <= last:
+                    if event.get("id") is None:
+                        # Live text on its way to the screen. It is in no log,
+                        # so it never advances the cursor and never replays.
+                        yield _sse(event)
+                        continue
+                    if event["id"] <= last:
                         continue
                     last = event["id"]
                     yield _sse(event)
@@ -122,8 +127,13 @@ def register(app: FastAPI, d: Deps) -> None:
 
 
 def _sse(event: dict) -> str:
+    # No `id:` line for an ephemeral event. The browser remembers the last id
+    # it saw and asks to resume from it after a dropped connection; pointing
+    # that at a fragment which was never written down would lose everything
+    # after it.
+    head = f"id: {event['id']}\n" if event.get("id") is not None else ""
     return (
-        f"id: {event.get('id', 0)}\n"
-        f"event: {event.get('kind', 'message')}\n"
-        f"data: {json.dumps(event, default=str)}\n\n"
+        head
+        + f"event: {event.get('kind', 'message')}\n"
+        + f"data: {json.dumps(event, default=str)}\n\n"
     )
