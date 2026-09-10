@@ -7,6 +7,8 @@ import GitPanel from './components/GitPanel'
 import LogPane from './components/LogPane'
 import MergePane from './components/MergePane'
 import PdfPane from './components/PdfPane'
+import PreviewPane from './components/PreviewPane'
+import { previewKind } from './components/preview/kinds'
 import { configure, record } from './usage'
 
 type Tab = 'editor' | 'review' | 'chat' | 'git'
@@ -44,6 +46,14 @@ export default function App() {
   const [starting, setStarting] = useState(false)
 
   const [openPath, setOpenPath] = useState<string | null>(null)
+  /* What is in the editor this moment, for the preview pane. The path travels
+   * with it because the editor sends its text a beat after you stop typing,
+   * which can be a beat after you have opened something else. */
+  const [liveText, setLiveText] = useState<{ path: string; text: string } | null>(null)
+  /* Which file you have told the preview to get out of the way for. Keyed by
+   * path rather than a flag, so dismissing it on one file does not silently
+   * turn it off for the next one. */
+  const [previewOffFor, setPreviewOffFor] = useState<string | null>(null)
   const [dirty, setDirty] = useState<Set<string>>(new Set())
   const [treeKey, setTreeKey] = useState(0)
   const [fileKey, setFileKey] = useState(0)
@@ -106,6 +116,10 @@ export default function App() {
   const live = sessions.filter((s) => s.status !== 'removed')
   const session = live.find((s) => s.id === current) ?? null
   const pending = detail?.id === current ? (detail.files ?? []).length : 0
+  /* What the right-hand column draws. A `.tex` is drawn by LaTeX and belongs
+   * to the PDF pane; a note, a config or a table the browser can draw itself,
+   * and then it does — in the same place, so the source stays on the left. */
+  const preview = previewOffFor === openPath ? null : previewKind(openPath)
 
   const markDirty = useCallback((path: string, isDirty: boolean) => {
     setDirty((prev) => {
@@ -120,6 +134,19 @@ export default function App() {
   const refreshFiles = useCallback(() => {
     setTreeKey((k) => k + 1)
     setFileKey((k) => k + 1)
+    // And so is the editor text the preview was drawing: a merge has just
+    // written the file underneath it. Dropping it sends the preview back to
+    // the copy on disk until the editor speaks again.
+    setLiveText(null)
+  }, [])
+
+  const takeEditorText = useCallback((path: string, text: string) => {
+    setLiveText({ path, text })
+  }, [])
+
+  const openFile = useCallback((path: string) => {
+    setOpenPath(path)
+    setTab('editor')
   }, [])
 
   /** Double-clicking the PDF: open that file and put the cursor on the line. */
@@ -199,7 +226,7 @@ export default function App() {
         <span className="meta">{config?.publish ?? ''}</span>
         {!pdfOpen && (
           <button className="tiny" onClick={togglePdf}>
-            Show PDF
+            {preview ? 'Show preview' : 'Show PDF'}
           </button>
         )}
       </header>
@@ -217,10 +244,7 @@ export default function App() {
                 <div className="rail-head">File tree</div>
                 <FileTree
                   open={openPath}
-                  onOpen={(p) => {
-                    setOpenPath(p)
-                    setTab('editor')
-                  }}
+                  onOpen={openFile}
                   reloadKey={treeKey}
                   dirty={dirty}
                   // A file that moved has to take the editor with it. The
@@ -363,6 +387,7 @@ export default function App() {
                   busy={starting}
                   jumpTo={jumpTo}
                   onShowInPdf={config?.builds_pdf ? showLineInPdf : undefined}
+                  onText={takeEditorText}
                 />
               )}
               {tab === 'review' &&
@@ -396,14 +421,33 @@ export default function App() {
           onCollapse={() => setPdfOpen(false)}
           onExpand={() => setPdfOpen(true)}
         >
-          <PdfPane
-            sessionId={session?.id ?? null}
-            latexdiffAvailable={config?.latexdiff ?? false}
-            onCollapse={togglePdf}
-            onJump={jumpToSource}
-            showInPdf={showInPdf}
-            buildsPdf={config?.builds_pdf ?? true}
-          />
+          {/* The preview covers the PDF rather than replacing it. Unmounting
+              the PDF pane would throw away the built paper and the compile it
+              is polling for, and you would be waiting on latexmk again for
+              having glanced at a README. */}
+          <div className="right-column">
+            <PdfPane
+              sessionId={session?.id ?? null}
+              latexdiffAvailable={config?.latexdiff ?? false}
+              onCollapse={togglePdf}
+              onJump={jumpToSource}
+              showInPdf={showInPdf}
+              buildsPdf={config?.builds_pdf ?? true}
+            />
+            {preview && openPath && (
+              <PreviewPane
+                path={openPath}
+                kind={preview}
+                text={liveText?.path === openPath ? liveText.text : undefined}
+                reloadKey={fileKey}
+                onOpenFile={openFile}
+                onShowPdf={() => {
+                  setPreviewOffFor(openPath)
+                  record('preview.dismiss', { kind: preview })
+                }}
+              />
+            )}
+          </div>
         </Panel>
       </PanelGroup>
     </div>

@@ -66,6 +66,8 @@ KINDS: tuple[Kind, ...] = (
     Kind("file.open", "which files you work in, and which you never touch"),
     Kind("file.save", "how often you save, and how big the files are"),
     Kind("file.reload_from_disk", "how often something else moves a file under you"),
+    Kind("preview.show", "which files are read in the pane rather than the editor"),
+    Kind("preview.dismiss", "whether the preview is ever in the way of the paper"),
     Kind("rail.filter", "whether the file filter earns its place"),
     Kind("rail.action", "creating, renaming, deleting and uploading"),
     # -- the editor

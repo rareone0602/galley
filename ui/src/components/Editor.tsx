@@ -182,6 +182,7 @@ export default function Editor({
   busy,
   jumpTo,
   onShowInPdf,
+  onText,
 }: {
   path: string | null
   reloadKey: number
@@ -193,6 +194,10 @@ export default function Editor({
   jumpTo?: { path: string; line: number; nonce: number } | null
   /** The same arrow the other way: show the line you are on in the PDF. */
   onShowInPdf?: (path: string, line: number) => void
+  /** What is in the editor right now, for the preview pane beside it. Sent as
+   *  you type rather than on save, because the pane is there to be watched
+   *  while you write. */
+  onText?: (path: string, text: string) => void
 }) {
   const [host, setHost] = useState<HTMLDivElement | null>(null)
   const view = useRef<EditorView | null>(null)
@@ -221,16 +226,35 @@ export default function Editor({
   const reportDirty = useRef(onDirtyChange)
   const reportSaved = useRef(onSaved)
   const showInPdf = useRef(onShowInPdf)
+  const reportText = useRef(onText)
   pathRef.current = path
   fontSizeRef.current = fontSize
   bubbleRef.current = bubble
   reportDirty.current = onDirtyChange
   reportSaved.current = onSaved
   showInPdf.current = onShowInPdf
+  reportText.current = onText
 
   /* Read from the store during the render because every change to it happens
    * beside a state change here, so there is always a render to carry it. */
   const unsavedElsewhere = unsavedPaths().filter((other) => other !== path)
+
+  /* Every keystroke redraws the preview, and a paragraph of Markdown is a
+   * hundred of them. A short wait collapses a burst of typing into one draw,
+   * which is the difference between a pane that keeps up and one that stutters
+   * a whole word behind. The path travels with the text: a push scheduled just
+   * before you switched files must not land as the new file's contents. */
+  const textTimer = useRef<number | null>(null)
+  const PUSH_DELAY = 150
+  const pushText = useCallback((rel: string, text: string, delay = 0) => {
+    if (textTimer.current) window.clearTimeout(textTimer.current)
+    if (delay === 0) {
+      reportText.current?.(rel, text)
+      return
+    }
+    textTimer.current = window.setTimeout(() => reportText.current?.(rel, text), delay)
+  }, [])
+  useEffect(() => () => window.clearTimeout(textTimer.current ?? undefined), [])
 
   const save = useCallback(async () => {
     const v = view.current
@@ -378,6 +402,7 @@ export default function Editor({
           EditorView.updateListener.of((update) => {
             if (update.docChanged) {
               const rel = pathRef.current
+              if (rel) pushText(rel, update.state.doc.toString(), PUSH_DELAY)
               const buffer = rel ? bufferFor(rel) : undefined
               if (rel && buffer) {
                 const dirty = update.state.doc.toString() !== buffer.saved
@@ -399,7 +424,7 @@ export default function Editor({
           }),
         ],
       }),
-    [bumpSize, dismissBubble, refreshBubble, save],
+    [bumpSize, dismissBubble, pushText, refreshBubble, save],
   )
 
   /** Put a state on screen. The font size and the language both live in the
@@ -481,7 +506,7 @@ export default function Editor({
       const disk = body.content ?? ''
       const remembered = bufferFor(rel)
       if (!remembered) {
-        const state = makeState(disk, body.content !== null)
+        const state = makeState(disk, body.editable)
         keepBuffer(rel, {
           state,
           saved: disk,
@@ -514,7 +539,7 @@ export default function Editor({
         v.dispatch({
           changes: { from: 0, to: v.state.doc.length, insert: disk },
           selection: { anchor: head },
-          effects: editable.current.reconfigure(EditorView.editable.of(body.content !== null)),
+          effects: editable.current.reconfigure(EditorView.editable.of(body.editable)),
           // Undo should not reach back into a version of the file that is
           // gone, and there is nothing of yours in it to reach back for.
           annotations: Transaction.addToHistory.of(false),
@@ -581,6 +606,14 @@ export default function Editor({
     }
   }, [path, reloadKey, host, makeState, reconcile, showState])
 
+  /* And the preview beside it starts from what is on screen. `file` changes on
+   * every path through the load — a fresh read, a restored buffer, a merge
+   * landing underneath one — so this is the one place that has to say it. */
+  useEffect(() => {
+    const v = view.current
+    if (v && path && file) pushText(path, v.state.doc.toString())
+  }, [path, file, pushText])
+
   // The file is opened by the parent; this puts the cursor on the line and
   // holds it in the middle of the view, the way a jump should land.
   useEffect(() => {
@@ -644,6 +677,21 @@ export default function Editor({
   }
 
   const binary = file !== null && file.content === null
+  /* Three ways a file is read-only, and each of them is a way of losing work
+   * without noticing: the bytes are not text, they are not UTF-8 so writing
+   * them back would put U+FFFD over the real ones, or the file is too big to
+   * have been read whole and saving would truncate it on disk. */
+  const readOnly = file !== null && !file.editable
+  const whyReadOnly =
+    file === null || file.editable
+      ? null
+      : file.content === null
+        ? file.type === 'image'
+          ? 'image'
+          : 'not text'
+        : file.truncated
+          ? 'first part only'
+          : 'not UTF-8'
   /* A file with no mode is shown as it is rather than coloured as something it
    * is not, and the bar says so — otherwise the only difference between "plain
    * text" and "highlighted" is that nothing happened to be highlighted. */
@@ -682,9 +730,18 @@ export default function Editor({
             </button>
           </>
         )}
-        {binary && (
-          <span className="muted small">
-            read-only · {file.type === 'image' ? 'image' : 'not text'}
+        {readOnly && (
+          <span
+            className="muted small"
+            title={
+              file.truncated
+                ? `${file.bytes.toLocaleString()} bytes on disk — Galley read the front of it`
+                : file.encoding === 'unknown'
+                  ? 'Some bytes are not UTF-8. Saving would write U+FFFD over them.'
+                  : undefined
+            }
+          >
+            read-only · {whyReadOnly}
           </span>
         )}
         {plainText && <span className="muted small">plain text</span>}
@@ -717,7 +774,7 @@ export default function Editor({
         <button
           className="tiny primary"
           onClick={() => void save()}
-          disabled={!status.dirty || binary}
+          disabled={!status.dirty || readOnly}
         >
           Save
         </button>
@@ -727,10 +784,20 @@ export default function Editor({
 
       {binary && path && (
         <div className="binary-view">
+          {/* Three cases, and only two of them are worth drawing. A browser
+              renders a picture and a PDF; it renders neither EPS nor a stray
+              payload, and putting one in an iframe gave a blank white page
+              where a plain sentence belongs — as well as handing a file of
+              unknown type to the renderer on Galley's own origin. */}
           {file.type === 'image' ? (
             <img src={api.blobUrl(path)} alt={path} />
-          ) : (
+          ) : path.toLowerCase().endsWith('.pdf') ? (
             <iframe className="pdf" src={api.blobUrl(path)} title={path} />
+          ) : (
+            <div className="empty small">
+              Nothing to show for this one — {file.bytes.toLocaleString()} bytes of{' '}
+              {file.type === 'figure' ? 'a figure the browser cannot draw' : 'something that is not text'}.
+            </div>
           )}
         </div>
       )}

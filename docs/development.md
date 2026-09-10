@@ -5,12 +5,13 @@ are here to *use* Galley, the `README.md` is shorter.
 
 ---
 
-## Three commands
+## Four commands
 
 ```bash
-./run.sh      # Galley, for real. One port, the built UI, no reloading.
-./dev.sh      # Galley, while you are changing it. Two servers, hot reload.
-./check.sh    # Everything that can be checked without a browser.
+./run.sh        # Galley, for real. One port, the built UI, no reloading.
+./dev.sh        # Galley, while you are changing it. Two servers, hot reload.
+./check.sh      # Everything that can be checked without a browser.
+./probe/run.sh  # And the part that needs one: a real browser, driven.
 ```
 
 **`./run.sh`** starts the backend on the port in your config (8124 by default).
@@ -25,7 +26,12 @@ page swaps it in — no build, no reload, and the file you had open stays open.
 
 **`./check.sh`** runs the backend tests, then TypeScript, then a production
 build, in the order that fails fastest. Run it before you commit. What it
-cannot tell you is whether anything *works* — see "Verifying UI work" below.
+cannot tell you is whether anything *works*.
+
+**`./probe/run.sh`** is that part. It builds the UI, makes a throwaway project
+under `$TMPDIR`, serves it on 8127, and drives a headless Chromium through it,
+printing one line per thing you should be able to see. Run it after any change
+to `ui/`. It never opens the real paper. See "Verifying UI work" below.
 
 First time on a machine:
 
@@ -59,7 +65,8 @@ ui/src/
   components/      one file per pane, with sub-folders where a pane grew parts
   editor/          languages and completion for CodeMirror
   styles/          one file per area, imported in cascade order by index.css
-tests/             behavioural tests for the backend. There are no UI tests.
+tests/             behavioural tests for the backend
+probe/             the browser probe: fixture.py, drive.py, run.sh
 ```
 
 ---
@@ -78,6 +85,7 @@ Galley at once without colliding.
 | **a stylesheet** | a file in `ui/src/styles/`, then one `@import` in cascade order | `ui/src/styles/index.css`, 1 line |
 | **a usage kind** | one `Kind(name, asks)` in `KINDS` | `galley/services/usage.py`. The vocabulary is closed on purpose: an unknown kind is refused and named back to the browser |
 | **a language for the editor** | one entry in `BY_EXTENSION` or `BY_FILENAME` | `ui/src/editor/languages.ts` |
+| **a preview for a kind of file** | a component in `ui/src/components/preview/`, one entry in `BY_EXTENSION`, one branch in `PreviewPane` | `ui/src/components/preview/kinds.ts` + `PreviewPane.tsx` |
 | **a habit for the agent** | a folder with a `SKILL.md` under `galley-skills/skills/` | nothing else; restart Galley. See the README there |
 
 `Deps` is the object every route area receives — config, database, bus, agents,
@@ -107,6 +115,20 @@ its own environment. `run.sh` unsets both it and `ANTHROPIC_AUTH_TOKEN` first.
 pins them against each other. Change one, change the other. Galley never applies
 a partial patch — the client assembles the whole buffer and writes it back — so
 a divergence here silently corrupts a file rather than failing.
+
+**The file's bytes decide whether it is text, not its extension.**
+`kind_of()` in `galley/services/files.py` is a guess for the rail's icon;
+`read()` is the answer, and it sniffs. Two files come back readable but *not*
+writable, and `editable` is the field that says so: one whose bytes are not
+UTF-8, because saving would put U+FFFD over the real ones, and one past
+`MAX_TEXT_BYTES`, because Galley only read the front of it. Never decide
+editability from `content !== null`.
+
+**Galley's forms set `input { width: 100% }`.** Every form in the app wants
+that; a checkbox does not, and the rule turns one into a full-width band with
+the label pushed onto the next line. The one checkbox in Galley — a Markdown
+task item — undoes it locally in `preview.css`. Types were clean, the DOM was
+right, and only the screenshot showed it.
 
 **PDF.js is pinned to 4.10.38.** Version 6 calls `URL.parse`, which needs
 Chrome 126. Do not bump it without checking the browser you actually verify in.
@@ -138,10 +160,23 @@ because the completion source was rebuilt on every keystroke and CodeMirror
 identifies sources by identity, so it restarted the query forever. Nothing but a
 real browser could have caught it.
 
-When something must be checked, drive a real browser over the Chrome DevTools
-Protocol. Playwright's Chromium is at
+So `./probe/run.sh` drives a real browser over the Chrome DevTools Protocol.
+Playwright's Chromium is at
 `~/.cache/ms-playwright/chromium-1117/chrome-linux/chrome`; Playwright itself
-needs Node 20 and this box has 18, so talk to CDP directly over `websockets`.
+needs Node 20 and this box has 18, so the probe talks to CDP directly over
+`websockets`. Set `GALLEY_PROBE_CHROME` to use another browser.
+
+Three things about it worth knowing before you add a check:
+
+- **It starts from a fresh browser profile every run.** The bundle is
+  content-hashed but `index.html` is not, so a kept cache serves the *last*
+  build and the run quietly checks code that is no longer there. That cost an
+  afternoon: the DOM was right and the screenshot was of the previous build.
+- **Write the check as the sentence you would say to someone.** "a task sits on
+  one line with its box". When it fails, that sentence is the bug report.
+- **Look at the screenshots.** They land in `$TMPDIR/galley-probe`. Two real
+  defects here passed every assertion and were obvious in the picture — a check
+  can only find what you thought to ask.
 
 ---
 

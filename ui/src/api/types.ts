@@ -24,12 +24,23 @@ export type TreeNode = {
   children?: TreeNode[]
 }
 
-/** A file as the editor gets it. `content` is null for anything not text. */
+/** A file as the editor gets it.
+ *
+ * `content` is null for anything with no text in it — a picture, a figure, a
+ * payload. `editable` is the one to obey before writing: a file can be
+ * perfectly readable and still not safe to save, because Galley read only the
+ * front of it or because its bytes are not UTF-8. `bytes` is always the size
+ * on disk, which is not the length of `content` when `truncated`. */
 export type FileBody = {
   path: string
   type: TreeNode['type']
   content: string | null
   bytes: number
+  /** Too big to open whole: `content` is the first part of it. */
+  truncated: boolean
+  /** Null when there is no text at all. */
+  encoding: 'utf-8' | 'unknown' | null
+  editable: boolean
 }
 
 /** A block you highlighted, and where in the file it came from. */

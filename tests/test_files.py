@@ -97,6 +97,60 @@ def test_a_figure_is_reported_but_not_decoded(client, paper_repo: Path) -> None:
     assert served.status_code == 200 and served.content.startswith(b"%PDF")
 
 
+def test_an_unknown_extension_opens_as_text_rather_than_being_refused(
+    client, paper_repo: Path
+) -> None:
+    """The old rule was an allowlist, so a file it had not heard of was binary."""
+    (paper_repo / "helper.ts").write_text("export const x = 1\n")
+    body = client.get("/api/file", params={"path": "helper.ts"}).json()
+    assert body["content"] == "export const x = 1\n"
+    assert body["type"] == "text" and body["editable"] is True
+
+
+def test_the_bytes_decide_and_not_the_name(client, paper_repo: Path) -> None:
+    """A `.txt` full of NULs is a payload; a `.dat` full of prose is not."""
+    (paper_repo / "weights.txt").write_bytes(b"\x89PNG\r\n\x00\x00 not text")
+    payload = client.get("/api/file", params={"path": "weights.txt"}).json()
+    assert payload["content"] is None and payload["type"] == "binary"
+
+    (paper_repo / "notes.dat").write_text("a line of prose\n")
+    prose = client.get("/api/file", params={"path": "notes.dat"}).json()
+    assert prose["content"] == "a line of prose\n" and prose["editable"] is True
+
+
+def test_a_file_too_big_to_edit_is_shown_from_the_front_and_locked(
+    client, paper_repo: Path
+) -> None:
+    line = "x" * 79 + "\n"
+    (paper_repo / "build.log").write_text(line * (files.MAX_TEXT_BYTES // 80 + 200))
+    body = client.get("/api/file", params={"path": "build.log"}).json()
+
+    assert body["truncated"] is True and body["editable"] is False
+    assert body["bytes"] > files.MAX_TEXT_BYTES  # the real size, not what was read
+    assert len(body["content"]) <= files.PREVIEW_BYTES
+    # Cut at a line ending, so the last line on screen is a whole one.
+    assert body["content"].endswith("\n")
+
+
+def test_a_preview_cut_mid_character_is_still_utf_8(paper_repo: Path) -> None:
+    """A multi-byte character split by the cap would read as a bad encoding."""
+    target = paper_repo / "long.txt"
+    target.write_text("é" * (files.MAX_TEXT_BYTES))  # two bytes each, no newline
+    body = files.read(paper_repo, "long.txt")
+    assert body["truncated"] is True and body["encoding"] == "utf-8"
+    assert "\ufffd" not in body["content"]
+
+
+def test_a_file_that_is_not_utf_8_is_readable_but_never_writable(
+    client, paper_repo: Path
+) -> None:
+    """Saving it back would put U+FFFD on disk over the real bytes."""
+    (paper_repo / "old.bib").write_bytes("@book{a, author = {Grüß}}\n".encode("latin-1"))
+    body = client.get("/api/file", params={"path": "old.bib"}).json()
+    assert body["encoding"] == "unknown" and body["editable"] is False
+    assert body["content"] is not None and "@book" in body["content"]
+
+
 def test_a_path_cannot_climb_out_of_the_project(client) -> None:
     for route in ("/api/file", "/api/blob"):
         assert client.get(route, params={"path": "../../etc/passwd"}).status_code == 400

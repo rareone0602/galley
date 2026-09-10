@@ -24,14 +24,30 @@ from pathlib import Path
 
 from . import git
 
-# What the editor can open as text, and what it must not try to.
-TEXT_SUFFIXES = frozenset(
-    ".tex .bib .cls .sty .bst .txt .md .csv .tsv .json .yaml .yml .toml .bbl .cfg "
-    ".sh .py .gnuplot .log .make .mk".split()
-)
 IMAGE_SUFFIXES = frozenset(".png .jpg .jpeg .gif .svg .webp".split())
-# Not text and not previewable, but a paper is full of them.
+# Not text, but the browser can draw them, so they open in their own view.
 FIGURE_SUFFIXES = frozenset(".pdf .eps .ps".split())
+# Bytes that are not text and never will be. Everything not named here is
+# assumed to be readable, and `read()` settles it by looking at the file.
+OPAQUE_SUFFIXES = frozenset(
+    ".zip .gz .bz2 .xz .zst .7z .tar .tgz .rar "
+    ".woff .woff2 .ttf .otf .eot "
+    ".so .o .a .dylib .dll .exe .pyc .pyo .bin .dat "
+    ".db .sqlite .sqlite3 .npy .npz .pt .pth .ckpt .safetensors .h5 .parquet "
+    ".mp4 .mov .avi .mkv .webm .mp3 .wav .flac .ogg .ico".split()
+)
+
+# Enough of the front of a file to tell prose from a payload. Git uses the
+# same trick and the same reasoning: a byte that cannot appear in text is
+# conclusive, and reading the whole file to find one is not worth it. A NUL
+# further in than this reads as text and arrives in the editor as U+FFFD.
+SNIFF_BYTES = 8192
+# What the editor will take responsibility for. Past this the browser tab
+# stops being usable, and a file this size in a paper is a log rather than
+# something you are about to edit.
+MAX_TEXT_BYTES = 2 * 1024 * 1024
+# So one is still readable: the front of it, read-only, and the bar says so.
+PREVIEW_BYTES = 512 * 1024
 
 HIDDEN = (".worktrees", ".git", ".galley")
 
@@ -62,6 +78,16 @@ class Refused(ValueError):
 
 
 def kind_of(rel: str) -> str:
+    """What the name suggests the file is, for the rail's icon.
+
+    A guess, and deliberately a generous one: anything not known to be a
+    picture, a figure or a payload is called text. The old rule was the other
+    way round — an allowlist of extensions, everything else binary — and it
+    was wrong twice over. A `.ts` or a `.lean` refused to open although the
+    editor has a mode for it, and a project that was not this paper had a rail
+    of files it could not read. `read()` is the one that decides for real, by
+    looking at the bytes, so a wrong guess here costs an icon and nothing else.
+    """
     name = Path(rel).name
     suffix = Path(rel).suffix.lower()
     # `.gitignore`, `Makefile`: no suffix, plainly editable text.
@@ -71,12 +97,13 @@ def kind_of(rel: str) -> str:
         return "image"
     if suffix in FIGURE_SUFFIXES:
         return "figure"
-    if suffix in TEXT_SUFFIXES:
-        return "tex" if suffix == ".tex" else "text"
-    return "binary"
+    if suffix in OPAQUE_SUFFIXES:
+        return "binary"
+    return "tex" if suffix == ".tex" else "text"
 
 
 def is_text(rel: str) -> bool:
+    """Whether the name suggests text. The guess, not the answer."""
     return kind_of(rel) in ("tex", "text")
 
 
@@ -174,24 +201,84 @@ def resolve(repo: Path, rel: str) -> Path:
 
 
 def read(repo: Path, rel: str) -> dict:
+    """A file as the editor gets it, and whether it may be written back.
+
+    Four answers, and the file's own bytes decide between them rather than its
+    name: a picture, a payload with nothing to show, text, or the front of
+    something too big to edit. `editable` is the one the editor obeys — the
+    two ways a file can be readable but not writable are both ways of losing
+    work silently, so neither is left to the caller to notice.
+    """
     path = resolve(repo, rel)
     if not path.is_file():
         raise FileNotFoundError(rel)
+    size = path.stat().st_size
     kind = kind_of(rel)
-    if not is_text(rel):
-        return {
-            "path": rel,
-            "type": kind,
-            "content": None,
-            "bytes": path.stat().st_size,
-        }
-    data = path.read_bytes()
+    if kind in ("image", "figure"):
+        return _unreadable(rel, kind, size)
+
+    with path.open("rb") as handle:
+        head = handle.read(SNIFF_BYTES)
+        if b"\0" in head:
+            return _unreadable(rel, "binary", size)
+        truncated = size > MAX_TEXT_BYTES
+        limit = PREVIEW_BYTES if truncated else MAX_TEXT_BYTES
+        data = head + handle.read(max(0, limit - len(head)))
+
+    if truncated:
+        data = _whole_lines(data)
+    try:
+        text, encoding = data.decode("utf-8"), "utf-8"
+    except UnicodeDecodeError:
+        # Something in the file is not UTF-8 — a Latin-1 accent in an old
+        # `.bib`, usually. It is still worth reading, so it is shown with the
+        # bad bytes replaced; what it must not be is writable, because saving
+        # would put those replacements on disk over the real ones.
+        text, encoding = data.decode("utf-8", errors="replace"), "unknown"
+
+    return {
+        "path": rel,
+        "type": "tex" if kind == "tex" else "text",
+        "content": text,
+        "bytes": size,
+        "truncated": truncated,
+        "encoding": encoding,
+        "editable": not truncated and encoding == "utf-8",
+    }
+
+
+def _unreadable(rel: str, kind: str, size: int) -> dict:
+    """A file with no text in it. The editor shows it, or says it cannot."""
     return {
         "path": rel,
         "type": kind,
-        "content": data.decode("utf-8", errors="replace"),
-        "bytes": len(data),
+        "content": None,
+        "bytes": size,
+        "truncated": False,
+        "encoding": None,
+        "editable": False,
     }
+
+
+def _whole_lines(data: bytes) -> bytes:
+    """Cut the preview back to the last complete line.
+
+    The cap falls at a byte, which is halfway through a line and can be
+    halfway through a character — and half a character decodes as U+FFFD,
+    which would make a perfectly good UTF-8 file report itself as some other
+    encoding. Cutting at the last newline settles both at once. A file with no
+    newline in the first half-megabyte gets whole characters instead.
+    """
+    end = data.rfind(b"\n")
+    if end != -1:
+        return data[: end + 1]
+    for trim in range(1, 4):
+        try:
+            data[:-trim].decode("utf-8")
+        except UnicodeDecodeError:
+            continue
+        return data[:-trim]
+    return data
 
 
 # -- what a name may be -------------------------------------------------------

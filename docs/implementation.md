@@ -778,6 +778,79 @@ there if you want them.
 shell, on purpose. Everything in these files has to be doable with Read, Grep
 and Glob.
 
+### 28. Every file the project has, shown as what it is
+
+The rail lists everything git considers part of the project. Until now the
+editor could only *open* a short allowlist of extensions — `.tex`, `.bib`,
+`.py`, a dozen more — and called everything else binary. That was wrong twice
+over. A `.ts` or a `.lean` refused to open although the editor has a mode for
+one of them, and a project that was not this paper had a rail full of files it
+could not read. It also let a real hazard through: a file was decoded with
+`errors="replace"`, so opening an old `.bib` written in Latin-1 and pressing
+Save wrote U+FFFD over every accented name in it.
+
+So the name is now only a guess, and the bytes are the answer.
+
+- `kind_of()` guesses from the extension, for the rail's icon. Anything not
+  known to be a picture, a figure or a payload is called text.
+- `read()` decides, by looking. A NUL in the first 8 KB — git's own test — and
+  it is a payload with nothing to show. Otherwise it is text.
+- `editable` is a separate answer from "is there text here", because two files
+  are readable and must not be written back: one whose bytes are not UTF-8, and
+  one past `MAX_TEXT_BYTES` (2 MB), where Galley read only the first 512 KB and
+  saving would truncate the file on disk. The editor bar says which, in words.
+- A preview is cut at the last newline, so the last line on screen is a whole
+  one — and so a multi-byte character split by the cap cannot make a perfectly
+  good UTF-8 file report itself as some other encoding.
+
+**And the right-hand column follows the file.** A `.tex` is drawn by LaTeX and
+belongs to the PDF pane. Three kinds of file the browser can draw itself now
+appear there instead, in the same place, so the source stays on the left:
+Markdown rendered, JSON laid out and coloured, and a `.csv` or `.tsv` as the
+table it is. The preview shows the *editor buffer*, not the file on disk —
+this is a pane you keep open while you write — and `PDF ›` puts the paper back
+for that file.
+
+Two decisions inside it are worth writing down.
+
+**Markdown is rendered from tokens, never from HTML.** `marked` produces a
+token stream and `Markdown.tsx` turns it into React elements; the HTML string
+that library usually emits is never made, and nothing calls
+`dangerouslySetInnerHTML`. That is not caution for its own sake. Galley's page
+can write to the paper through its own API and is same-origin with every file
+it shows, so one `<script>` in a `.md` that arrived with a downloaded template
+would run as you. Rendering tokens makes that impossible by construction rather
+than by a filter somebody has to keep correct. Raw HTML in the source is shown
+as the text it is, `javascript:` links are rendered as plain words, and a
+relative link opens that file in the editor while a relative image is served
+through `/api/blob`.
+
+**The preview covers the PDF; it does not replace it.** Unmounting the PDF pane
+would throw away the built paper and the compile it is polling for, and you
+would be waiting on latexmk again for having glanced at a README.
+
+The one thing the browser found that no assertion did: a file with no text in
+it used to be handed to an `<iframe>`. For a payload that drew a blank white
+page where a sentence belongs, and it put a file of unknown type in front of
+the renderer on Galley's own origin. Now only a picture and a PDF are drawn,
+and everything else says what it is and how big.
+
+### 29. A probe that opens a real browser
+
+`./check.sh` proves the types agree and the bundle builds. It has never proved
+that a feature works, and section 20's completion bug is what that gap looks
+like. `./probe/run.sh` is the other half: it builds the UI, makes a throwaway
+project under `$TMPDIR` (never the real paper), serves it on 8127, and drives a
+headless Chromium through it — 45 checks, each written as the sentence you
+would say to someone about what should be on the screen.
+
+It starts from a fresh browser profile every run. The bundle is content-hashed
+but `index.html` is not, so a kept cache serves the last build; that cost an
+afternoon here, with a correct DOM and a screenshot of the previous one.
+
+It is not in `check.sh`. It wants a browser and a free port, and a check that
+cannot run everywhere does not belong in the one you must run before a commit.
+
 ## What has been exercised, and what has not
 
 **Run against the real paper (258 `.tex` files, 13,153 segments):** the
@@ -857,10 +930,11 @@ rectangles on page 1. The merge pane opened on the live session and read
 
 - **An Overleaf push.** `sync` refuses off-branch and on a dirty tree (both
   tested); the fetch/rebase/push itself has not been fired at the live bridge.
-- **Anything in `ui/` has no automated test at all.** There is no test runner
-  configured for the front end, so every claim about the editor, the merge pane,
-  the rail and the completion list rests on the browser checks above rather than
-  on a suite that runs again tomorrow. The completion bug in section 20 is
-  exactly the shape this gap hides: types were clean, the backend was green, and
-  the feature did nothing. Adding a runner is a real decision, not a tidy-up,
-  and it is Po Hung's to make.
+- **`ui/` still has no unit test runner.** What it has now is `./probe/run.sh`
+  (section 29), which drives a real browser and re-runs tomorrow — but it covers
+  the rail, the editor bar and the preview column, and nothing else. Every claim
+  about the merge pane, the completion list and the PDF viewer still rests on
+  the one-off browser checks above. The completion bug in section 20 is the
+  shape this gap hides: types were clean, the backend was green, and the feature
+  did nothing. Whether to add a component runner as well is a real decision, not
+  a tidy-up, and it is Po Hung's to make.
