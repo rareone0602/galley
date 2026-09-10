@@ -237,3 +237,94 @@ def test_an_environment_pointing_at_nothing_says_so(tmp_path: Path, monkeypatch)
     with pytest.raises(ConfigError) as exc:
         find_config()
     assert CONFIG_ENV_VAR in str(exc.value)
+
+
+# -- how hard it thinks, and how wide it spreads -----------------------------
+
+
+def test_the_defaults_are_the_ones_asked_for(bare_config) -> None:
+    assert bare_config.agent.effort == "xhigh"
+    assert bare_config.agent.thinking == "adaptive"
+    assert bare_config.agent.fan_out_depth == 2
+    assert bare_config.agent.skills == "workbench"
+
+
+@pytest.mark.parametrize(
+    "table, said",
+    [
+        ("\n[agent]\neffort = 'ludicrous'\n", "effort"),
+        ("\n[agent]\nthinking = 'hard'\n", "thinking"),
+        ("\n[agent]\nthinking = 0\n", "off"),
+        ("\n[agent]\nfan_out_depth = 3\n", "fan_out_depth"),
+        ("\n[agent]\nfan_out_depth = -1\n", "fan_out_depth"),
+    ],
+)
+def test_a_setting_that_cannot_work_is_refused_at_load(
+    tmp_path: Path, paper_repo: Path, table: str, said: str
+) -> None:
+    with pytest.raises(ConfigError) as exc:
+        _agent_config(tmp_path, paper_repo, table)
+    assert said in str(exc.value)
+
+
+def test_the_depth_ceiling_explains_itself(tmp_path: Path, paper_repo: Path) -> None:
+    """Two is not arbitrary: the bottom tier is bounded by having no spawning
+    tool, and there is no tier below the second to give that property to."""
+    with pytest.raises(ConfigError) as exc:
+        _agent_config(tmp_path, paper_repo, "\n[agent]\nfan_out_depth = 4\n")
+    assert "no way to spawn" in str(exc.value)
+
+
+@pytest.mark.parametrize(
+    "written, read_back",
+    [
+        ("thinking = 'off'", "off"),
+        ("thinking = false", "off"),
+        ("thinking = true", "adaptive"),
+        ("thinking = 8000", 8000),
+    ],
+)
+def test_thinking_takes_the_three_shapes_people_write(
+    tmp_path: Path, paper_repo: Path, written: str, read_back
+) -> None:
+    cfg = _agent_config(tmp_path, paper_repo, f"\n[agent]\n{written}\n")
+    assert cfg.agent.thinking == read_back
+
+
+@pytest.mark.parametrize(
+    "written, read_back",
+    [
+        ("skills = 'all'", "all"),
+        ("skills = 'none'", "none"),
+        ("skills = false", "none"),
+        ("skills = true", "workbench"),
+        ("skills = ['paper-patch', 'trace-a-number']", ("paper-patch", "trace-a-number")),
+    ],
+)
+def test_skills_can_be_all_none_or_a_list(
+    tmp_path: Path, paper_repo: Path, written: str, read_back
+) -> None:
+    cfg = _agent_config(tmp_path, paper_repo, f"\n[agent]\n{written}\n")
+    assert cfg.agent.skills == read_back
+
+
+def test_galleys_own_skills_are_found_without_being_named(bare_config) -> None:
+    from galley.config import BUNDLED_SKILLS
+
+    assert bare_config.paths.skills_dir == BUNDLED_SKILLS
+    assert bare_config.paths.skills_dir.is_dir()
+
+
+def test_a_skills_directory_that_is_not_there_is_a_mistake(
+    tmp_path: Path, paper_repo: Path
+) -> None:
+    """Named but absent is a typo worth stopping for; not named at all is not."""
+    path = _write(
+        tmp_path / "noskills" / "galley.local.toml",
+        f"[paths]\npaper_repo = '{paper_repo}'\n"
+        f"state_dir = '{tmp_path / 'noskills-state'}'\n"
+        f"skills_dir = '{tmp_path / 'nowhere'}'\n",
+    )
+    with pytest.raises(ConfigError) as exc:
+        load(path)
+    assert "skills_dir" in str(exc.value)

@@ -1,0 +1,8 @@
+{
+  "name": "galley-skills",
+  "version": "0.1.0",
+  "description": "Working habits for an agent writing a paper inside Galley. Yours to edit.",
+  "author": {
+    "name": "Galley"
+  }
+}

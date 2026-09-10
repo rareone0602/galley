@@ -695,6 +695,89 @@ is deliberately not in that list — it publishes no root entry, only
 costs, the traps that eat an afternoon, and how to verify UI work in a real
 browser given that no test suite will do it for you.
 
+### 27. Thinking, effort, helpers, skills — and where the guard really lives
+
+Po Hung, after the first pass: *"1. enable thinking (of course) 2. effort=xhigh
+3. enable fan out subagents up to depth=2. 4. skills: Yes, I think we need some
+operational best practice and script, but I would like to use it myself and
+improve it based on my usage."*
+
+**Thinking and effort** are two lines: `thinking = "adaptive"`, which lets the
+model decide when thinking is worth it rather than fixing a budget, and
+`effort = "xhigh"`. Both are in `[agent]` and both are defaults rather than
+constants.
+
+**Fanning out** has two kinds of helper and a hard ceiling of two tiers. A
+`helper` takes a piece of the work end to end and may start `reader`s; a
+`reader` reads one thing and reports back and starts nobody. `forward_subagent_text`
+is on, so what a helper says arrives in the chat pane rather than the helper
+being a black box between "started" and "finished"; every event carries the id
+of the tool call that started it, and the log indents them under the agent you
+asked.
+
+**The ceiling is where this got interesting.** The first implementation put the
+depth rule in `can_use_tool`, beside the rule that keeps writes inside the
+worktree, and tested it thoroughly. Then a real run showed a helper starting a
+second helper, and a third would have been just as easy.
+
+`can_use_tool` is *the SDK's replacement for the interactive permission
+prompt*. It is consulted only for calls that would otherwise prompt — and the
+CLI approves reads, a bare `echo`, and **every `Agent` spawn** under its own
+rules, before the callback is asked. Tracing what the guard was actually told
+during one turn settled it: of eleven tool calls, exactly one reached it.
+
+So the guard is now a **`PreToolUse` hook**, which sees every call and is told
+`agent_type` — which kind of agent is asking. That is what makes the bound real:
+nobody names their own depth, and a helper cannot pretend to be the agent you
+asked. `decide()` is the one owner of the rule; the hook and the old callback
+both ask it, so there are two enforcers and one rule.
+
+Measured afterwards, in one turn: you → helper allowed, helper → two readers
+allowed, helper → helper **refused with Galley's own sentence**. And in another:
+Bash refused, `Edit` and `Write` outside the worktree refused, the mounted
+directory byte-identical afterwards.
+
+Two smaller things came out of the same investigation, both real:
+
+- **`permission_mode` was `"acceptEdits"`**, which approves a write before
+  anything of Galley's is asked about it. It is `"default"` now.
+- **`setting_sources` was unset**, which loads *all* of them — including
+  `~/.claude/settings.json`, which carries whatever permission mode you use for
+  your own Claude Code. It is `["project"]` now, which keeps the paper's own
+  CLAUDE.md and leaves your habits out of it. `strict_mcp_config` is on for the
+  same reason: a helper reported an MCP server's instructions arriving
+  alongside its file reads, which is text from elsewhere in the context of an
+  agent editing a manuscript.
+
+`child_env` now also strips the variables that name a Claude Code session —
+`CLAUDECODE`, the messaging socket and token, `CLAUDE_EFFORT`. Start Galley
+from inside Claude Code and the agent would otherwise inherit another session's
+identity and its effort level. `CLAUDE_CONFIG_DIR` is deliberately kept: that
+one is a setting, not an identity.
+
+**Skills** live in `galley-skills/`, a local plugin directory passed with
+`--plugin-dir`, and three ship with it: `paper-patch` (how to write a patch
+that survives a sentence-by-sentence review), `trace-a-number` (never write a
+figure you cannot trace, and what to write instead), and `survey-before-writing`
+(when fanning out earns its cost, and when one Grep is cheaper). They are meant
+to be edited — the README beside them says so, and `[paths] skills_dir` points
+somewhere else if you would rather keep them out of this repository.
+
+Not `.claude/skills` inside the paper, because the paper is not Galley's to put
+files in. The manifest failed validation on the first attempt — `author` must be
+an object, not a string — and a rejected plugin loads no skills and says nothing
+about it, so the shape is now pinned by a test.
+
+`[agent] skills` defaults to `"workbench"`: the ones in your own directory and
+nothing else. Claude Code ships thirteen of its own — `security-review`,
+`keybindings-help`, `workflow-authoring` — which a paper workbench has no use
+for, and every skill offered costs a line of the agent's attention. `"all"` is
+there if you want them.
+
+**One thing a skill here cannot do: tell the agent to run a script.** It has no
+shell, on purpose. Everything in these files has to be doable with Read, Grep
+and Glob.
+
 ## What has been exercised, and what has not
 
 **Run against the real paper (258 `.tex` files, 13,153 segments):** the

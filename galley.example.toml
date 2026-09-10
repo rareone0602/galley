@@ -31,6 +31,40 @@ model          = "opus"
 # same tokens, sooner; the half-written copies are never written to the log.
 stream         = true
 
+# How hard to work before answering: low, medium, high, xhigh, max. Prose in a
+# paper is read by reviewers who are paid to disagree with it, so this is not
+# the place to save a few seconds.
+effort         = "xhigh"
+
+# Whether to think before answering. "adaptive" lets the model decide when
+# thinking is worth it and for how long, which is what the current Opus is
+# built around. A number is a fixed token budget for older models; "off" turns
+# it off entirely.
+thinking       = "adaptive"
+
+# How deep the agent may fan out to helpers of its own.
+#
+#   0  it works alone
+#   1  it may delegate
+#   2  those helpers may delegate once more, to readers
+#
+# Two is the ceiling. A `helper` takes a piece of the work end to end; a
+# `reader` reads one thing and reports back and starts nobody. The bound is
+# enforced on every tool call, not asked for in the prompt.
+fan_out_depth  = 2
+
+# Which skills the agent may use.
+#
+#   "workbench"  the ones in your skills directory and nothing else (default)
+#   "all"        everything the CLI can find, including Claude Code's own
+#   "none"       none at all
+#   ["a", "b"]   exactly these
+#
+# The default is deliberate: Claude Code ships skills like `security-review`
+# and `keybindings-help` that a paper workbench has no use for, and every skill
+# offered costs a line of the agent's attention.
+skills         = "workbench"
+
 [server] port
 # and a different [paths] state_dir, or the two will fight over the database.
 
@@ -47,6 +81,11 @@ state_dir   = ".galley"
 # to it and can never write there. Leave it out if the paper has no such
 # companion — most do not.
 # code_mirror = "~/code/my-project"
+
+# Optional. Habits you want the agent to have, written down once. Defaults to
+# Galley's own `galley-skills/`, which ships three and is meant to be edited —
+# see the README in it. Point this elsewhere to keep yours somewhere else.
+# skills_dir  = "~/my-writing-habits"
 
 [paper]
 # The branch you merge onto.

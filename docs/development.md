@@ -78,6 +78,7 @@ Galley at once without colliding.
 | **a stylesheet** | a file in `ui/src/styles/`, then one `@import` in cascade order | `ui/src/styles/index.css`, 1 line |
 | **a usage kind** | one `Kind(name, asks)` in `KINDS` | `galley/services/usage.py`. The vocabulary is closed on purpose: an unknown kind is refused and named back to the browser |
 | **a language for the editor** | one entry in `BY_EXTENSION` or `BY_FILENAME` | `ui/src/editor/languages.ts` |
+| **a habit for the agent** | a folder with a `SKILL.md` under `galley-skills/skills/` | nothing else; restart Galley. See the README there |
 
 `Deps` is the object every route area receives — config, database, bus, agents,
 the work table — plus the few questions more than one area asks (`require_session`,
@@ -87,6 +88,14 @@ there rather than being imported sideways.
 ---
 
 ## Things that will cost you an afternoon
+
+**The guard is a `PreToolUse` hook, and it has to be.** `can_use_tool` is the
+SDK's replacement for the interactive permission prompt, so it is consulted
+*only* for calls that would otherwise prompt — reads, a bare `echo`, and every
+`Agent` spawn are approved by the CLI's own rules before it is asked. A helper
+started a second helper that way with the rule forbidding it sitting there,
+unconsulted. `decide()` in `galley/services/agent.py` owns the rule; the hook
+and the callback both ask it. If you add a tool or a tier, change `decide`.
 
 **Never export `ANTHROPIC_API_KEY`.** The Agent SDK's child process inherits it
 and bills the API per token instead of using your Claude subscription. Galley

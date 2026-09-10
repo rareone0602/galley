@@ -61,7 +61,9 @@ def test_the_agent_is_scoped_to_its_worktree_with_the_code_mirror(agents, config
     opts = _options(agents, worktree_path="/somewhere/wt")
     assert opts.cwd == "/somewhere/wt"
     assert opts.add_dirs == [str(config.paths.code_mirror)]
-    assert opts.permission_mode == "acceptEdits"
+    # "acceptEdits" would approve a write before the guard is consulted, and
+    # the guard is the only thing keeping the agent out of the codebase.
+    assert opts.permission_mode == "default"
 
 
 def test_the_agent_gets_no_extra_tool_surface(agents) -> None:
@@ -195,7 +197,7 @@ async def test_reading_anywhere_is_still_allowed(guard, tmp_path, tool: str) -> 
     assert result.behavior == "allow"
 
 
-@pytest.mark.parametrize("tool", ["Bash", "WebFetch", "Task", "SlashCommand"])
+@pytest.mark.parametrize("tool", ["Bash", "WebFetch", "SlashCommand"])
 async def test_everything_else_is_denied(guard, tool: str) -> None:
     """A shell would undo every other line of the guard: `echo x > ../file` is
     a write by another name."""
@@ -267,7 +269,10 @@ def test_a_text_delta_becomes_one_live_fragment() -> None:
         )
     )
     assert events == [
-        {"kind": "delta", "payload": {"index": 1, "role": "text", "text": "The ablation "}}
+        {
+            "kind": "delta",
+            "payload": {"index": 1, "role": "text", "text": "The ablation ", "agent": None},
+        }
     ]
 
 
@@ -346,3 +351,276 @@ def test_a_rate_limit_becomes_something_the_log_can_say() -> None:
         "used": 0.87,
         "resets_at": 1757500000,
     }
+
+
+# -- thinking, effort, and the environment the child gets ------------------
+
+
+def test_thinking_is_adaptive_and_the_effort_is_the_highest_that_is_not_max(agents) -> None:
+    """Prose in a paper is read by reviewers paid to disagree with it."""
+    opts = _options(agents)
+    assert opts.thinking == {"type": "adaptive"}
+    assert opts.effort == "xhigh"
+
+
+@pytest.mark.parametrize(
+    "setting, shape",
+    [
+        ("adaptive", {"type": "adaptive"}),
+        ("off", {"type": "disabled"}),
+        (12000, {"type": "enabled", "budget_tokens": 12000}),
+    ],
+)
+def test_every_thinking_setting_has_a_shape_the_sdk_knows(config, setting, shape) -> None:
+    import dataclasses
+
+    from galley.config import Agent
+
+    tuned = dataclasses.replace(config, agent=Agent(thinking=setting))
+    assert tuned.agent.thinking_config == shape
+
+
+def test_another_claude_session_does_not_travel_into_this_one(monkeypatch) -> None:
+    """Start Galley from inside Claude Code and the agent would otherwise
+    inherit that session's id, its message socket and its effort level."""
+    from galley.config import SESSION_ENV_VARS
+
+    for var in SESSION_ENV_VARS:
+        monkeypatch.setenv(var, "from-the-parent-session")
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", "/somewhere/deliberate")
+    env = child_env()
+    assert not any(v in env for v in SESSION_ENV_VARS)
+    # A setting, not an identity: relocating the config must keep working.
+    assert env["CLAUDE_CONFIG_DIR"] == "/somewhere/deliberate"
+
+
+def test_only_the_projects_settings_are_loaded(agents) -> None:
+    """Your own `~/.claude/settings.json` carries the permission mode you use
+    for your own Claude Code, and it would apply here too."""
+    assert _options(agents).setting_sources == ["project"]
+
+
+# -- fanning out ----------------------------------------------------------
+
+
+@pytest.fixture
+def tree(tmp_path):
+    """The guard as the CLI really reaches it: a PreToolUse hook, which is the
+    only thing told about every call and about who made it."""
+    from galley.services.agent import tool_guard
+
+    wt = tmp_path / "worktree"
+    wt.mkdir(parents=True)
+
+    def guard_at(depth: int):
+        hook = tool_guard(wt, depth)["PreToolUse"][0].hooks[0]
+
+        async def ask(tool: str, args: dict, agent_type: str | None = None):
+            out = await hook(
+                {"tool_name": tool, "tool_input": args, "agent_type": agent_type}, "t1", {}
+            )
+            return out["hookSpecificOutput"]
+
+        return ask
+
+    return guard_at
+
+
+@pytest.mark.parametrize("tool", ["Agent", "Task"])
+async def test_working_alone_is_a_setting(tree, tool: str) -> None:
+    out = await tree(0)(tool, {"subagent_type": "helper"})
+    assert out["permissionDecision"] == "deny"
+    assert "fan_out_depth is 0" in out["permissionDecisionReason"]
+
+
+@pytest.mark.parametrize("tool", ["Agent", "Task"])
+async def test_the_agent_you_asked_may_delegate(tree, tool: str) -> None:
+    """Both names are the same act; which one the CLI uses is its business."""
+    out = await tree(1)(tool, {"subagent_type": "helper"})
+    assert out["permissionDecision"] == "allow"
+
+
+async def test_at_depth_one_a_helper_may_not_delegate_again(tree) -> None:
+    out = await tree(1)("Agent", {"subagent_type": "reader"}, "helper")
+    assert out["permissionDecision"] == "deny"
+
+
+async def test_at_depth_two_a_helper_may_start_readers_and_nothing_else(tree) -> None:
+    """The ceiling, and the thing that actually enforces it: the hook is told
+    which kind of agent is asking, so nobody has to be trusted about it."""
+    guard = tree(2)
+    assert (await guard("Agent", {"subagent_type": "reader"}, "helper"))[
+        "permissionDecision"
+    ] == "allow"
+    refused = await guard("Agent", {"subagent_type": "helper"}, "helper")
+    assert refused["permissionDecision"] == "deny"
+    assert "may not start another agent" in refused["permissionDecisionReason"]
+
+
+async def test_a_reader_starts_nothing_at_all(tree) -> None:
+    for wanted in ("reader", "helper", "general-purpose"):
+        out = await tree(2)("Agent", {"subagent_type": wanted}, "reader")
+        assert out["permissionDecision"] == "deny", wanted
+
+
+async def test_an_unnamed_kind_from_inside_a_helper_is_refused(tree) -> None:
+    """A builtin agent type would otherwise be a third tier by another name."""
+    out = await tree(2)("Agent", {"subagent_type": "general-purpose"}, "helper")
+    assert out["permissionDecision"] == "deny"
+
+
+async def test_the_hook_is_what_the_options_carry(agents) -> None:
+    """`can_use_tool` is only consulted for calls that would otherwise prompt,
+    and an `Agent` spawn never does. A helper started a second helper that way
+    with the rule forbidding it sitting right there, unconsulted."""
+    hooks = _options(agents).hooks
+    assert list(hooks) == ["PreToolUse"]
+    assert hooks["PreToolUse"][0].matcher is None, "every tool, not a subset"
+
+
+async def test_both_enforcers_answer_from_the_same_rule(tmp_path) -> None:
+    from galley.services.agent import tool_guard, writes_only_inside
+
+    wt = tmp_path / "wt"
+    wt.mkdir()
+    hook = tool_guard(wt, 2)["PreToolUse"][0].hooks[0]
+    callback = writes_only_inside(wt, 2)
+
+    outside = {"file_path": str(tmp_path / "code" / "train.py")}
+    from_hook = (
+        await hook({"tool_name": "Edit", "tool_input": outside, "agent_type": None}, "t", {})
+    )["hookSpecificOutput"]
+    from_callback = await callback("Edit", outside, None)
+    assert from_hook["permissionDecision"] == "deny"
+    assert from_callback.behavior == "deny"
+    assert from_hook["permissionDecisionReason"] == from_callback.message
+
+
+def test_a_reader_cannot_ask_to_delegate_because_it_has_no_such_tool(config) -> None:
+    from galley.services.agent import HELPER, READER, SPAWNING_TOOLS, helpers
+
+    made = helpers(config)
+    assert not SPAWNING_TOOLS & set(made[READER].tools)
+    assert SPAWNING_TOOLS & set(made[HELPER].tools)
+    # And a reader writes nothing.
+    from galley.services.agent import WRITING_TOOLS
+
+    assert not WRITING_TOOLS & set(made[READER].tools)
+
+
+def test_helpers_are_only_defined_when_they_are_allowed(config) -> None:
+    import dataclasses
+
+    from galley.config import Agent
+
+    alone = dataclasses.replace(config, agent=Agent(fan_out_depth=0))
+    service = AgentService(alone, Database(alone.db_path), EventBus())
+    opts = _options(service)
+    assert opts.agents is None
+    assert opts.forward_subagent_text is False
+
+
+def test_what_a_helper_says_is_forwarded_and_labelled(agents) -> None:
+    """Without this a helper is a black box: you see it start and finish."""
+    from galley.services.agent import HELPER, READER, normalise
+
+    opts = _options(agents)
+    assert opts.forward_subagent_text is True
+    assert set(opts.agents) == {HELPER, READER}
+
+    events = normalise(
+        AssistantMessage(
+            content=[TextBlock(text="Six sections mention it.")], parent_tool_use_id="call-9"
+        )
+    )
+    assert events[0]["payload"]["agent"] == "call-9"
+
+
+# -- skills ---------------------------------------------------------------
+
+
+def test_the_skills_directory_is_passed_as_a_local_plugin(agents, config) -> None:
+    """Not `.claude/skills` in the paper: the paper is not Galley's to write in."""
+    opts = _options(agents)
+    assert opts.plugins == [{"type": "local", "path": str(config.paths.skills_dir)}]
+
+
+def test_only_the_workbenchs_own_skills_are_offered(agents) -> None:
+    """Claude Code ships its own — `security-review`, `keybindings-help` — and
+    a paper workbench has no use for them. Every one offered costs attention."""
+    from galley.services.agent import skills_in
+
+    offered = _options(agents).skills
+    assert offered == skills_in(agents.cfg.paths.skills_dir)
+    assert all(name.startswith("galley-skills:") for name in offered)
+    assert "galley-skills:paper-patch" in offered
+
+
+def test_a_skill_name_is_read_from_the_manifest_not_assumed(config) -> None:
+    """`<plugin>:<skill>` is how the CLI addresses one, and the plugin half
+    comes from the manifest — so renaming it must not quietly stop matching."""
+    import json
+
+    from galley.services.agent import skills_in
+
+    root = config.paths.skills_dir
+    named = json.loads((root / ".claude-plugin" / "plugin.json").read_text())["name"]
+    assert all(n.split(":")[0] == named for n in skills_in(root))
+
+
+def test_the_manifest_is_the_shape_the_cli_accepts(config) -> None:
+    """It failed silently the first time: `author` as a string is rejected by
+    the CLI's own validator, and a rejected plugin loads no skills at all and
+    says nothing about it."""
+    import json
+
+    manifest = json.loads(
+        (config.paths.skills_dir / ".claude-plugin" / "plugin.json").read_text()
+    )
+    assert isinstance(manifest.get("name"), str) and manifest["name"]
+    assert isinstance(manifest.get("author", {}), dict)
+
+
+def test_your_own_mcp_servers_are_not_this_agents_business(agents) -> None:
+    """Without this they arrive with their tool definitions and their
+    instructions — text from elsewhere, in an agent editing a manuscript."""
+    assert _options(agents).strict_mcp_config is True
+
+
+def test_galley_ships_skills_that_a_shell_less_agent_can_follow(config) -> None:
+    """The agent has no Bash, so a skill telling it to run a script is a
+    skill it cannot follow."""
+    root = config.paths.skills_dir
+    assert (root / ".claude-plugin" / "plugin.json").is_file()
+    found = sorted(p.parent.name for p in root.glob("skills/*/SKILL.md"))
+    assert found, "the bundled plugin has no skills in it"
+    for name in found:
+        body = (root / "skills" / name / "SKILL.md").read_text(encoding="utf-8")
+        assert body.startswith("---"), f"{name} has no frontmatter"
+        assert "description:" in body.split("---")[1], f"{name} has no description"
+
+
+def test_skills_can_be_turned_off_or_narrowed(config) -> None:
+    import dataclasses
+
+    from galley.config import Agent
+
+    mine = ["galley-skills:paper-patch"]
+    for setting, wanted in [
+        ("none", []),
+        (("paper-patch",), ["paper-patch"]),
+        ("all", "all"),
+        ("workbench", mine),
+    ]:
+        tuned = dataclasses.replace(config, agent=Agent(skills=setting))
+        assert tuned.agent.skills_wanted(mine) == wanted
+
+
+def test_a_helpers_bookkeeping_stays_out_of_the_log() -> None:
+    """Started, progressing, updated, finished: the tool call and its result
+    already say all four, and a log a human reads beats a complete one."""
+    from galley.services.agent import SUBAGENT_BOOKKEEPING, normalise
+
+    for kind in SUBAGENT_BOOKKEEPING:
+        message = type(kind, (_Block,), {})(uuid="u", session_id="s")
+        assert normalise(message) == [], kind

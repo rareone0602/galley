@@ -38,3 +38,13 @@
 }
 @keyframes caret-blink { 50% { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .caret { animation: none; } }
+
+/* A block one of the agent's helpers produced. Indented and quieter, so a
+   fanned-out turn reads as one conversation with asides in it rather than
+   three conversations interleaved. */
+.ev.sub {
+  margin-left: 16px;
+  border-left-style: dashed;
+  font-size: var(--fs-sm);
+}
+.ev.sub .who { color: var(--content-info); }
