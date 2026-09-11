@@ -15,6 +15,9 @@ export const sessionsApi = {
       method: 'POST',
       body: JSON.stringify({ text }),
     }),
+  /** Fold the conversation so far into a summary the session goes on from. */
+  compact: (id: string) =>
+    json<{ ok: boolean }>(`/api/sessions/${id}/compact`, { method: 'POST' }),
   stopSession: (id: string) =>
     json<{ ok: boolean }>(`/api/sessions/${id}/stop`, { method: 'POST' }),
   removeSession: (id: string, keepBranch = true) =>

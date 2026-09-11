@@ -429,6 +429,30 @@ async def run(page):
     check("and the rewrite is really in the file now",
           "Kernel aAcceptance" in (await page.js('document.querySelector(".cm-content")?.textContent') or ""))
 
+    print("\n-- the chat pane: what a session costs, and the two ways out of one --")
+    clicked = await page.until(
+        '(() => { const b = [...document.querySelectorAll(".tabs button")]'
+        '.find(b => b.textContent.startsWith("Chat")); if (!b || b.disabled) return false;'
+        ' b.click(); return true })()', 8)
+    check("the chat tab opens", clicked)
+    check("it offers to compact the conversation",
+          await page.until('!!document.querySelector(".log-foot .compact")', 5))
+    # The seeded session has never had a turn, so there is nothing to fold.
+    # The button must say that rather than let the click fail.
+    check("but not before the first turn, and it says so",
+          await page.js('(() => { const b = document.querySelector(".log-foot .compact");'
+                        ' return !!b && b.disabled && /first turn/.test(b.title) })()'),
+          await page.js('document.querySelector(".log-foot .compact")?.title'))
+    # Removing a session is the one click that cannot be taken back from
+    # inside Galley: the worktree goes, and an unsaved review with it.
+    await page.js('window.confirm = () => false')
+    await page.js('[...document.querySelectorAll(".rail-foot button")]'
+                  '.find(b => b.textContent.startsWith("Remove"))?.click()')
+    await asyncio.sleep(0.6)
+    check("Remove asks first, and no leaves the session where it was",
+          await page.js('document.querySelectorAll(".session").length') == 1)
+    await page.shot("chat")
+
     print("\n-- a build that fails, and the button that hands it to Claude --")
     if shutil.which("latexmk") is None:
         print("  skip  latexmk is not installed, so there is no build to fail")

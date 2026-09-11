@@ -367,6 +367,11 @@ export default function App() {
                           </span>
                         )}
                         <span className="mono">{s.branch.replace('claude/', '')}</span>
+                        {s.cost_usd != null && s.cost_usd > 0 && (
+                          <span className="cost" title="what this session has cost so far">
+                            ${s.cost_usd.toFixed(2)}
+                          </span>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -383,15 +388,24 @@ export default function App() {
                     </button>
                     <button
                       className="tiny"
-                      title="Remove the worktree; the branch is kept as provenance"
-                      onClick={() =>
-                        api.removeSession(session.id).then(() => {
+                      title="Delete the worktree and take the session off the rail. Its branch stays."
+                      onClick={() => {
+                        /* The one click here that cannot be taken back from
+                         * inside Galley. The branch survives it; the chat and
+                         * an unsaved review do not. */
+                        const sure = window.confirm(
+                          `Remove this session?\n\nIts worktree is deleted and its chat leaves the rail. ` +
+                            `Its branch (${session.branch}) is kept, so nothing Claude wrote is lost — ` +
+                            `but anything in Review you have not saved is.`,
+                        )
+                        if (!sure) return
+                        void api.removeSession(session.id).then(() => {
                           setCurrent(null)
                           return reload()
                         })
-                      }
+                      }}
                     >
-                      Close worktree
+                      Remove
                     </button>
                   </div>
                 )}

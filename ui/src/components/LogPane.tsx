@@ -5,8 +5,12 @@ import { api, type LogEvent, type Session } from '../api'
  *  replayed from the log when a tab reconnects. */
 const KEPT = [
   'prompt', 'text', 'thinking', 'tool_use', 'tool_result',
-  'session', 'result', 'rate_limit', 'error', 'turn_end', 'other',
+  'session', 'compact', 'result', 'rate_limit', 'error', 'turn_end', 'other',
 ] as const
+
+/** Tokens, the way you would say them: 152531 is "153k", 1871 is "1.9k". */
+const tokens = (n: number) =>
+  n >= 10000 ? `${Math.round(n / 1000)}k` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
 
 /** A block the agent is still writing. It has no id and is in no log: the
  *  finished version arrives a moment later as an ordinary `text` event, and
@@ -24,6 +28,7 @@ export default function LogPane({ session }: { session: Session }) {
   const [live, setLive] = useState<LiveBlock[]>([])
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
+  const [compacting, setCompacting] = useState(false)
   const bottom = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -85,6 +90,30 @@ export default function LogPane({ session }: { session: Session }) {
     }
   }
 
+  /* Folding the conversation so far into a summary. The session keeps its id
+   * and carries on; what changes is that every call after this pays for the
+   * summary instead of the whole transcript. The server refuses it mid-turn
+   * and before the first turn, and the button says so rather than failing. */
+  const cannotCompact = session.running
+    ? 'The agent is working. It can be compacted when it stops.'
+    : !session.claude_session_id
+      ? 'Nothing to compact until the first turn has run.'
+      : null
+  async function compact() {
+    setCompacting(true)
+    try {
+      await api.compact(session.id)
+    } catch (e) {
+      alert(String(e))
+    } finally {
+      setCompacting(false)
+    }
+  }
+  const soFar = [
+    session.context_tokens != null ? `${tokens(session.context_tokens)} tokens in context` : null,
+    session.cost_usd != null ? `$${session.cost_usd.toFixed(2)} so far` : null,
+  ].filter(Boolean)
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div className="log grow" style={{ overflowY: 'auto', paddingRight: 6 }}>
@@ -113,6 +142,23 @@ export default function LogPane({ session }: { session: Session }) {
         />
         <button className="primary" onClick={send} disabled={sending || !draft.trim()}>
           Send
+        </button>
+      </div>
+      <div className="log-foot">
+        <span className="muted small" title="what the next message pays for again, and what the session has cost">
+          {soFar.join(' · ')}
+        </span>
+        <span className="grow" />
+        <button
+          className="tiny compact"
+          onClick={compact}
+          disabled={compacting || !!cannotCompact}
+          title={
+            cannotCompact ??
+            'Fold the conversation so far into a short summary. The session carries on from it, and every call after this pays for the summary instead of the whole transcript.'
+          }
+        >
+          {compacting ? 'Compacting…' : 'Compact'}
         </button>
       </div>
     </div>
@@ -205,7 +251,19 @@ function Event({ event, helper }: { event: LogEvent; helper?: string }) {
             turn finished{p.num_turns ? ` · ${p.num_turns} turns` : ''}
             {p.duration_ms ? ` · ${(p.duration_ms / 1000).toFixed(1)}s` : ''}
             {p.total_cost_usd ? ` · $${Number(p.total_cost_usd).toFixed(4)}` : ''}
+            {p.context_tokens ? ` · ${tokens(p.context_tokens)} in context` : ''}
           </div>
+        </div>
+      )
+    case 'compact':
+      /* The conversation above this line is now a summary. What the next
+       * call pays is the summary plus a fixed prefix the CLI does not
+       * report, so the footer's count goes blank until that call is made. */
+      return (
+        <div className="ev compact">
+          {p.trigger === 'auto' ? 'the context filled up, so the CLI folded' : 'folded'}
+          {p.pre_tokens ? ` ${tokens(p.pre_tokens)} tokens` : ' the conversation so far'}
+          {p.post_tokens ? ` into a ${tokens(p.post_tokens)}-token summary` : ' into a summary'}
         </div>
       )
     case 'rate_limit':

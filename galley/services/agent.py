@@ -45,6 +45,10 @@ Your job is to write a patch, and only that.
   the remote. Those are the human's.
 - You never invent a number. If a claim needs a figure you cannot trace to
   something in front of you, write the claim without it and say so.
+- You have no shell, and you do not need one: Grep and Glob find, Read reads,
+  Edit changes, and Galley compiles and commits for you. Find before you read.
+  A file read whole to locate one passage stays in your context for every call
+  after it; a Grep that names the line costs a line.
 """.strip()
 
 #: Added only when the config names a `code_mirror`. Saying this to an agent
@@ -213,7 +217,7 @@ def compose_prompt(instruction: str, selection: Selection | None, whole_file: st
 # only shell an agent would legitimately want is `git commit`, which Galley does
 # for it when the turn ends.
 WRITING_TOOLS = {"Edit", "Write", "NotebookEdit", "MultiEdit"}
-READING_TOOLS = {"Read", "Grep", "Glob", "NotebookRead", "TodoWrite", "ExitPlanMode", "Skill"}
+READING_TOOLS = {"Read", "Grep", "Glob", "NotebookRead", "TodoWrite", "Skill"}
 #: Starting a helper. The CLI has called this tool both names across versions,
 #: and which one is live is not Galley's business to track — both are the same
 #: act, so both go through the same rule.
@@ -227,6 +231,26 @@ PATH_ARGS = ("file_path", "path", "notebook_path", "filePath")
 #: you → helper → reader, and the rule that gets it there is one line: from
 #: inside a helper, the only thing you may start is a reader.
 HELPER, READER = "helper", "reader"
+
+#: What the model is offered, and it is exactly what `decide` allows.
+#:
+#: Named outright rather than left to the CLI's default set, for two reasons
+#: found the hard way. The CLI hides Grep and Glob behind a `ToolSearch` loader
+#: unless the tools are named, and the guard refused the loader — so the agent
+#: had no way to search at all, and read whole files to find one line: sixteen
+#: reads to move one line, in one session, at 150k tokens of context a call.
+#: And the default set carries some thirty tools — a shell, cron, web fetch,
+#: messaging — every one of which the guard would refuse. Naming the list keeps
+#: their definitions out of every request (ten thousand tokens of prefix, on
+#: the small test that found this) and the model out of the habit of trying
+#: them. The guard stays: a list says what is offered, the hook says what is
+#: allowed, and they agree by construction because both are built from these.
+TOOL_SURFACE = sorted(READING_TOOLS | WRITING_TOOLS | SPAWNING_TOOLS)
+
+#: The CLI's own command for folding the conversation so far into a summary.
+#: Sent as a prompt and resumed like any other turn; the CLI answers with a
+#: `compact_boundary` saying what it folded.
+COMPACT = "/compact"
 
 
 @dataclass(frozen=True)
@@ -426,12 +450,32 @@ class AgentService:
             name=f"galley-agent-{session_id}",
         )
 
+    def compact(self, session_id: str) -> None:
+        """Fold what the session has said so far into a short summary.
+
+        The session goes on from the summary with the same id, and every call
+        after it pays for the summary instead of the whole transcript. Worth it
+        on a session you keep coming back to, and pointless before the first
+        turn: there is nothing to fold yet, and the CLI would be asked to
+        summarise an empty conversation.
+        """
+        row = self.db.get_session(session_id)
+        if row is None:
+            raise KeyError(session_id)
+        if not row.get("claude_session_id"):
+            raise LookupError("nothing to compact: this session has not had a turn yet")
+        self.start(session_id, COMPACT)
+
     async def stop(self, session_id: str) -> None:
         task = self._tasks.get(session_id)
-        if task and not task.done():
-            task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
+        if not task or task.done():
+            # Nothing is running. The row already says how the last turn
+            # ended, and "stopped" over "idle" would be a lie — one every
+            # session told after each restart, since shutdown stops them all.
+            return
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
         self.db.update_session(session_id, status="stopped")
 
     async def shutdown(self) -> None:
@@ -448,6 +492,9 @@ class AgentService:
         agent = self.cfg.agent
         return ClaudeAgentOptions(
             cwd=row["worktree_path"],
+            # Exactly the tools the guard allows, and no loader in front of
+            # Grep and Glob. See TOOL_SURFACE for what leaving this unset cost.
+            tools=TOOL_SURFACE,
             # Two enforcers, one rule. The hook is the one that sees every
             # call; the callback catches anything that still reaches a prompt.
             hooks=tool_guard(Path(row["worktree_path"]), agent.fan_out_depth),
@@ -518,9 +565,20 @@ class AgentService:
     async def _run(self, session_id: str, prompt: str) -> None:
         row = self.db.get_session(session_id)
         assert row is not None
-        await self._emit(session_id, "prompt", {"text": prompt})
+        if prompt != COMPACT:
+            # A compaction is not something you said; the boundary it produces
+            # is the whole of what the log needs.
+            await self._emit(session_id, "prompt", {"text": prompt})
+        # How big the conversation was on the last call the agent itself made.
+        # A helper's calls have their own context and are not this session's.
+        context: int | None = None
         try:
             async for message in query(prompt=prompt, options=self._options(row)):
+                if (
+                    type(message).__name__ == "AssistantMessage"
+                    and getattr(message, "parent_tool_use_id", None) is None
+                ):
+                    context = context_size(getattr(message, "usage", None)) or context
                 for event in normalise(message):
                     if event["kind"] in LIVE_ONLY:
                         await self._emit_live(session_id, event["kind"], event["payload"])
@@ -530,8 +588,15 @@ class AgentService:
                             session_id,
                             claude_session_id=event["payload"]["claude_session_id"],
                         )
+                    if event["kind"] == "compact":
+                        # What the next call will pay is not known until it is
+                        # made: the summary's size is known, the fixed prefix
+                        # in front of it is not.
+                        context = None
                     if event["kind"] == "result":
+                        event["payload"]["context_tokens"] = context
                         self._note_turn(event["payload"])
+                        self._remember(session_id, event["payload"])
                     await self._emit(session_id, event["kind"], event["payload"])
             self.db.update_session(session_id, status="idle")
             await self._emit(session_id, "turn_end", _commit_worktree(Path(row["worktree_path"])))
@@ -561,6 +626,19 @@ class AgentService:
                 "cost_usd": payload.get("total_cost_usd"),
             },
         )
+
+    def _remember(self, session_id: str, payload: dict) -> None:
+        """What the session has cost so far, and how big it has grown.
+
+        On the row as well as in the events, so the rail and the chat's
+        footer can say it without replaying a session's log.
+        """
+        row = self.db.get_session(session_id) or {}
+        fields: dict[str, Any] = {"context_tokens": payload.get("context_tokens")}
+        cost = payload.get("total_cost_usd")
+        if isinstance(cost, (int, float)):
+            fields["cost_usd"] = float(row.get("cost_usd") or 0.0) + float(cost)
+        self.db.update_session(session_id, **fields)
 
     async def _emit(self, session_id: str, kind: str, payload: Any) -> None:
         event = self.db.append_event(kind, payload, session_id=session_id)
@@ -628,18 +706,37 @@ def normalise(message: Any) -> list[dict]:
         return _rate_limit(getattr(message, "rate_limit_info", None))
 
     if name == "SystemMessage":
+        subtype = getattr(message, "subtype", "")
         data = getattr(message, "data", {}) or {}
-        events.append(
-            {
-                "kind": "session",
-                "payload": {
-                    "subtype": getattr(message, "subtype", ""),
-                    "claude_session_id": data.get("session_id"),
-                    "model": data.get("model"),
-                },
-            }
-        )
-        return events
+        if subtype == "init":
+            return [
+                {
+                    "kind": "session",
+                    "payload": {
+                        "subtype": subtype,
+                        "claude_session_id": data.get("session_id"),
+                        "model": data.get("model"),
+                    },
+                }
+            ]
+        if subtype == "compact_boundary":
+            folded = data.get("compact_metadata") or {}
+            return [
+                {
+                    "kind": "compact",
+                    "payload": {
+                        "trigger": folded.get("trigger"),
+                        "pre_tokens": folded.get("pre_tokens"),
+                        "post_tokens": folded.get("post_tokens"),
+                        "duration_ms": folded.get("duration_ms"),
+                    },
+                }
+            ]
+        # Everything else the CLI says about itself — "requesting" before each
+        # call, a running count of thinking tokens — was going into the log at
+        # hundreds of rows a session and replaying on every reconnect, and
+        # none of it is a thing a reader of the conversation wants to see.
+        return []
 
     if name in ("AssistantMessage", "UserMessage"):
         role = "assistant" if name == "AssistantMessage" else "user"
@@ -757,6 +854,24 @@ def _deltas(event: dict, parent: str | None = None) -> list[dict]:
             },
         }
     ]
+
+
+def context_size(usage: Any) -> int | None:
+    """How big the conversation is, as the API last saw it.
+
+    Every reply carries the size of the request that produced it: the tokens
+    read back from the cache, the ones newly written to it, and the few that
+    were neither. Their sum is the context — what a follow-up pays for again
+    on every call, and the number that says whether compacting is worth it.
+    """
+    if not isinstance(usage, dict):
+        return None
+    parts = [
+        usage.get(key)
+        for key in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")
+    ]
+    counted = [p for p in parts if isinstance(p, int) and not isinstance(p, bool)]
+    return sum(counted) if counted else None
 
 
 def _rate_limit(info: Any) -> list[dict]:

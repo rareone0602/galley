@@ -48,3 +48,16 @@
   font-size: var(--fs-sm);
 }
 .ev.sub .who { color: var(--content-info); }
+
+/* A compaction: everything above it is now a summary the agent works from.
+   Drawn as a rule across the log, because that is what it is. */
+.ev.compact {
+  border-left-color: var(--neutral-30);
+  color: var(--content-secondary);
+  font-size: var(--fs-sm);
+  font-style: italic;
+}
+
+/* Under the reply box: what the next message pays for, and the one thing you
+   can do about it. */
+.log-foot { display: flex; align-items: center; gap: 8px; margin-top: 6px; }

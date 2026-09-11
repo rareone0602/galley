@@ -80,6 +80,7 @@ KINDS: tuple[Kind, ...] = (
     Kind("session.create", "how a session starts: from a selection, or from the box"),
     Kind("session.message", "whether the conversation continues after the first turn"),
     Kind("session.stop", "how often an agent is stopped part-way"),
+    Kind("session.compact", "whether a long conversation is ever folded to save tokens"),
     Kind("session.remove", "how often a worktree is put away"),
     Kind("agent.turn", "what a turn costs, in seconds and in dollars"),
     Kind("review.open", "how much arrives to review at a time"),

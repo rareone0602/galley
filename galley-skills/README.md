@@ -43,3 +43,9 @@ agent inside its own worktree. So a skill here cannot tell it to run a script.
 Everything in these files has to be doable with Read, Grep and Glob, which is
 more than it sounds: those tools search the whole codebase mounted beside the
 paper, at local speed.
+
+The other constraint is the one that costs money: **everything the agent reads
+stays in its context for the rest of the turn**, and a follow-up turn pays for
+all of it again. A skill that sends the agent to read a file whole is a skill
+that makes every later call dearer. Tell it what to Grep for and which lines to
+read, not which file to open.

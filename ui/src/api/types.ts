@@ -79,6 +79,15 @@ export type Session = {
   sel_start: number | null
   sel_end: number | null
   sel_text: string | null
+  /** The CLI's own id for the conversation. Null until the first turn has
+   *  started, which is also when there is nothing yet to compact. */
+  claude_session_id: string | null
+  /** How big the conversation was on the agent's last call, in tokens — what
+   *  a follow-up pays for again on every call. Null after a compaction until
+   *  the next turn says. */
+  context_tokens: number | null
+  /** What the session has cost so far, over every turn. */
+  cost_usd: number | null
   running?: boolean
   files?: { path: string; added: number | null; removed: number | null }[]
 }

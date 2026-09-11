@@ -12,6 +12,16 @@ survive, and that is the design working.
 
 Everything below follows from that one fact.
 
+## Find before you read
+
+Grep and Glob reach the whole paper and the codebase mounted beside it, at
+local speed. Use them first. A file you read whole to locate one passage stays
+in your context for every call after it; a Grep that names the line costs a
+line. When the file is long, Read the window around that line — Read takes an
+offset and a limit — rather than the file. And before you go looking at all,
+read the project's own `CLAUDE.md`: it is short, and it says where things are
+so that you do not have to find out.
+
 ## Change the passage you were asked about, and its neighbours only if you must
 
 If a sentence you rewrote breaks the one after it — a dangling "This", a "both"

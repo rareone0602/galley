@@ -76,6 +76,22 @@ def test_the_agent_gets_no_extra_tool_surface(agents) -> None:
     assert not _options(agents).mcp_servers
 
 
+def test_the_model_is_offered_exactly_what_the_guard_allows(agents, tmp_path) -> None:
+    """Left unset, the CLI's default set hides Grep and Glob behind a loader
+    the guard refuses, and offers a shell, cron and web fetch that it refuses
+    too. One session searched a paper with Read alone that way: sixteen whole
+    files to move one line."""
+    from galley.services.agent import decide
+
+    offered = _options(agents).tools
+    assert isinstance(offered, list)
+    assert {"Read", "Grep", "Glob", "Edit", "Write"} <= set(offered)
+    for refused in ("Bash", "ToolSearch", "WebFetch", "WebSearch"):
+        assert refused not in offered
+    for tool in offered:
+        assert decide(tool, {"file_path": str(tmp_path / "x")}, tmp_path, 2, None).allowed, tool
+
+
 def test_the_system_prompt_matches_the_sdk_preset_shape(agents) -> None:
     prompt = _options(agents).system_prompt
     assert set(prompt) <= set(SystemPromptPreset.__annotations__)
@@ -148,6 +164,59 @@ def test_usage_is_surfaced_so_you_can_see_what_a_session_cost() -> None:
         ResultMessage(duration_ms=1200, num_turns=3, is_error=False, usage={}, total_cost_usd=0.02)
     )
     assert events[0]["payload"]["total_cost_usd"] == 0.02
+
+
+def test_a_compaction_boundary_says_what_was_folded() -> None:
+    """The CLI answers `/compact` with a boundary: how big the conversation
+    was, and how big the summary that replaced it is."""
+    from galley.services.agent import normalise
+
+    events = normalise(
+        SystemMessage(
+            subtype="compact_boundary",
+            data={
+                "compact_metadata": {
+                    "trigger": "manual",
+                    "pre_tokens": 26222,
+                    "post_tokens": 1871,
+                    "duration_ms": 16575,
+                }
+            },
+        )
+    )
+    assert events == [
+        {
+            "kind": "compact",
+            "payload": {
+                "trigger": "manual",
+                "pre_tokens": 26222,
+                "post_tokens": 1871,
+                "duration_ms": 16575,
+            },
+        }
+    ]
+
+
+@pytest.mark.parametrize("subtype", ["status", "thinking_tokens"])
+def test_the_clis_bookkeeping_about_itself_stays_out_of_the_log(subtype: str) -> None:
+    """One real session stored 246 of these — a 'requesting' before every
+    call, a running count of thinking tokens — and replayed them on every
+    reconnect. None of it is a thing a reader of the conversation wants."""
+    from galley.services.agent import normalise
+
+    assert normalise(SystemMessage(subtype=subtype, data={"status": "requesting"})) == []
+
+
+def test_the_context_is_the_sum_of_what_the_last_call_read() -> None:
+    """Cached or not, it is all context, and all of it is paid for again on
+    the next call. The number is what says whether compacting is worth it."""
+    from galley.services.agent import context_size
+
+    assert context_size(
+        {"input_tokens": 7, "cache_read_input_tokens": 25857, "cache_creation_input_tokens": 260}
+    ) == 26124
+    assert context_size({"output_tokens": 98}) is None
+    assert context_size(None) is None
 
 
 # -- the codebase is mounted to be read, not changed -----------------------

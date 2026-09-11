@@ -110,12 +110,17 @@ MAX_NAMED_ERRORS = 12
 #: pane shows every sentence you touched, and a build fix should be one line in
 #: it. The agent has no shell (see `WRITING_TOOLS` in `agent.py`), so it cannot
 #: run latexmk to check itself — which is exactly why it is told to say what it
-#: is unsure of rather than try something and hope.
+#: is unsure of rather than try something and hope. The reading discipline is
+#: from the first real press: sixteen whole files read, at 150k tokens of
+#: context a call, to move one line the log had already pointed at.
 FIX_INSTRUCTIONS = (
-    "Fix the source so latexmk succeeds. Change as little as it takes: do not "
-    "reword, reformat or rewrap anything you are not fixing. You cannot run "
-    "latexmk yourself here, so where the log does not say enough to be sure "
-    "what was meant, fix what you are sure of and say plainly what you are not."
+    "Fix the source so latexmk succeeds. Start where the log points: read a "
+    "window around that line, not the whole file, and Grep for a macro's "
+    "definition rather than reading the style files through. Change as little "
+    "as it takes: do not reword, reformat or rewrap anything you are not fixing. "
+    "You cannot run latexmk yourself here, so where the log does not say enough "
+    "to be sure what was meant, fix what you are sure of and say plainly what "
+    "you are not."
 )
 
 

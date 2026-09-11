@@ -106,6 +106,21 @@ started a second helper that way with the rule forbidding it sitting there,
 unconsulted. `decide()` in `galley/services/agent.py` owns the rule; the hook
 and the callback both ask it. If you add a tool or a tier, change `decide`.
 
+**Name the tools, or the model has no Grep.** Left unset, the CLI's default
+tool set is some thirty tools with `Grep` and `Glob` *not* among them — they sit
+behind a `ToolSearch` loader, which the guard refuses. One real session
+searched the paper with `Read` alone that way. `TOOL_SURFACE` in
+`galley/services/agent.py` is passed as `tools=` and is exactly what `decide`
+allows; add a tool to one of the three sets and both the offer and the guard
+change together. The cheap way to see what the model is actually offered is the
+`init` system message's `tools` list.
+
+**Restarting takes two Ctrl-C while a tab is open.** The chat pane holds an
+SSE stream open, and uvicorn's graceful shutdown waits for it — "Waiting for
+connections to close" — for as long as the browser keeps it. The second Ctrl-C
+forces the quit; the text you typed after the first one was discarded with it,
+so type `uv run galley` again.
+
 **Never export `ANTHROPIC_API_KEY`.** The Agent SDK's child process inherits it
 and bills the API per token instead of using your Claude subscription. Galley
 strips it at spawn (`config.child_env`) and refuses to start if it finds one in

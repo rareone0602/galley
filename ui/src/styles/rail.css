@@ -52,6 +52,7 @@
   min-width: 0;
 }
 .session .meta .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session .meta .cost { margin-left: auto; flex: none; font-variant-numeric: tabular-nums; }
 
 .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; flex: none; background: var(--content-disabled); }
 .dot.running { background: var(--bg-accent); animation: pulse 1.4s ease-in-out infinite; }

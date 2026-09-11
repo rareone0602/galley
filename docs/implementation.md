@@ -952,6 +952,92 @@ money.
 
 ---
 
+## 32. What the model is offered, what a session costs, and folding a long one
+
+**Request (2026-09-11):** *"Read my latest usage. Improve my integrate with
+Claude SDK and other user experience. BTW, can I delete chat or use compact in
+chat (if I further want to access to it and save my tokens)."* And a moment
+later: *"And provide/improve skills to save tokens."*
+
+**What the usage said.** Two real sessions on the paper. One on 09-09: 39 API
+calls, 484.9 s, $3.27, a 152,531-token context by the end, and 142 changes
+offered of which 13 reached the paper. One on 09-11, the first press of *Ask
+Claude to fix*: 23 calls, 306.8 s, $2.61, a 150,057-token context, and one line
+moved — correctly, and the build passed once the two changes were taken. The
+conversation had never once been continued (`session.message` unused), no
+session had ever been removed, and the log held 458 rows of `thinking_tokens`
+bookkeeping and 19 of `status: requesting` that no one would ever read.
+
+**What the log said about the money.** The 09-11 session made 16 `Read` calls,
+had 2 `Bash` calls refused, and had one `ToolSearch` call refused. That last one
+is the defect. Reproduced with a cheap model through Galley's own options: the
+tool list the CLI offers by default is 33 tools — `Bash`, `WebFetch`, cron,
+messaging, workflow, all of which the guard refuses — and **`Grep` and `Glob`
+are not in it**. The CLI puts them behind a `ToolSearch` loader, and the guard
+refused the loader because it is in no list. So the agent had no way to search
+at all, and read whole files to find one line, at 150k tokens of context per
+call. Asked to find which file held one word, the cheap model failed in 6
+calls for $0.069.
+
+**The fix is to say what is offered.** `tools=TOOL_SURFACE` in `_options`,
+where `TOOL_SURFACE` is the union of the three sets `decide` already allows.
+The CLI then offers exactly those, `Grep` and `Glob` among them, loader-free:
+the same question took 2 calls and $0.032, and the fixed prefix in front of
+every call fell from 25,016 to 14,429 tokens. The guard stays; a list says what
+is offered and the hook says what is allowed, and they agree by construction
+because both are built from the same three sets. The rules the agent is given
+now also say it has no shell and to find before it reads, because the sentence
+"Galley commits your work for you" was true but was not the reason it kept
+reaching for `Bash`.
+
+**Compacting, and the two numbers that say when.** `/compact` sent as a prompt
+on a resumed session is honoured by the CLI: on the test session it folded
+26,222 tokens into a 1,871-token summary in 16.6 s for $0.01, answered with a
+`compact_boundary` carrying those numbers, and the session then answered a
+follow-up correctly from the summary. Galley exposes that as
+`POST /api/sessions/{id}/compact`, a *Compact* button under the reply box, and
+a rule across the log saying what was folded. The button is disabled before the
+first turn and while a turn runs, and says which. To know when it is worth
+pressing, every reply's `usage` is read for the size of the request that
+produced it — tokens read from cache, written to it, and neither — and the last
+such number of a turn is the context; it goes on the `result` event, on the
+session row as `context_tokens`, and into the chat's footer beside the
+session's running `cost_usd`, which the rail also shows. After a compaction the
+count goes blank until the next call reports it, because the summary's size is
+known and the fixed prefix in front of it is not.
+
+**Deleting a chat.** *Close worktree* was the button, and its name said what
+happened to git rather than what happened to you. It is now *Remove*, it asks
+first, and the question says exactly what is kept (the branch, so nothing
+Claude wrote is lost) and what is not (the chat, and any review you had not
+saved). Once removed, a session's chat is not reachable from Galley again; its
+transcript survives only in the CLI's own store under `~/.claude/projects/`.
+
+**Skills, and why the biggest saving is not one.** `paper-patch` gained *Find
+before you read*, `survey-before-writing` now says what a helper costs before
+it has read a word (the same fixed prefix, again), and the skills README says
+the constraint plainly: everything the agent reads stays in its context for the
+rest of the turn. But a skill loads only when the model reaches for it, and the
+map that would have saved the 09-11 session its sixteen reads is specific to
+this paper. That went where every turn reads it: a *Where things are* section
+in FLM's own `CLAUDE.md`, naming the section files, which style file defines
+which macro, and where a `\num{}` key lives. The fix prompt for a failed build
+says the same in one sentence: start where the log points, read a window, Grep
+for a macro's definition.
+
+**What stays out of the log.** `normalise` now keeps two kinds of
+`SystemMessage` — `init`, for the session id and model, and `compact_boundary` —
+and drops the rest. Nothing a reader wanted was in the 477 rows that were
+being stored and replayed on every reconnect.
+
+The probe reaches the chat pane now: it opens it on the seeded session, checks
+the *Compact* button is there and disabled with the reason in its tooltip, and
+checks that *Remove* asks first by answering no and finding the session still
+listed. Pressing either for real would spend a turn or delete a worktree, and
+the probe does neither.
+
+---
+
 ## What has been exercised, and what has not
 
 **Run against the real paper (258 `.tex` files, 13,153 segments):** the

@@ -74,6 +74,18 @@ def register(app: FastAPI, d: Deps) -> None:
             raise HTTPException(409, str(exc)) from exc
         return {"ok": True}
 
+    @app.post("/api/sessions/{session_id}/compact")
+    async def compact_session(session_id: str) -> dict:
+        row = d.require_session(session_id)
+        d.note("session.compact", {"context_tokens": row.get("context_tokens")})
+        try:
+            d.agents.compact(session_id)
+        except (RuntimeError, LookupError) as exc:
+            # Mid-turn, or nothing said yet. Either way not now, and the
+            # sentence says which.
+            raise HTTPException(409, str(exc)) from exc
+        return {"ok": True}
+
     @app.post("/api/sessions/{session_id}/stop")
     async def stop_session(session_id: str) -> dict:
         d.note("session.stop", {"was_running": d.agents.is_running(session_id)})

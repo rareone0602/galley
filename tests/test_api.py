@@ -234,6 +234,95 @@ async def test_a_follow_up_message_starts_another_turn(client, fake_agent) -> No
     assert fake_agent["prompt"] == "second"
 
 
+async def _settled(client, session_id: str) -> dict:
+    for _ in range(50):
+        row = client.get(f"/api/sessions/{session_id}").json()
+        if row["status"] != "running":
+            return row
+        await asyncio.sleep(0.05)
+    return client.get(f"/api/sessions/{session_id}").json()
+
+
+def _turn(monkeypatch, seen: dict, *, cost: float, context: dict):
+    """A fake SDK whose one turn costs `cost` and ends with a call this big."""
+    from claude_agent_sdk import AssistantMessage, ResultMessage, SystemMessage, TextBlock
+
+    async def fake_query(prompt, options):
+        seen.setdefault("prompts", []).append(prompt)
+        if prompt == "/compact":
+            yield SystemMessage(
+                subtype="compact_boundary",
+                data={"compact_metadata": {"trigger": "manual", "pre_tokens": 26222, "post_tokens": 1871}},
+            )
+        else:
+            yield SystemMessage(subtype="init", data={"session_id": "claude-1", "model": "m"})
+            yield SystemMessage(subtype="status", data={"status": "requesting"})
+            yield AssistantMessage([TextBlock("Done.")], model="m", usage=context)
+        yield ResultMessage(
+            subtype="success", duration_ms=10, duration_api_ms=9, is_error=False,
+            num_turns=1, session_id="claude-1", total_cost_usd=cost,
+        )
+
+    monkeypatch.setattr("galley.services.agent.query", fake_query)
+
+
+async def test_a_turn_records_what_it_cost_and_how_big_the_context_grew(client, monkeypatch) -> None:
+    """The two numbers that say whether a session is worth compacting, on the
+    row so the rail can show them without replaying the log."""
+    seen: dict = {}
+    _turn(monkeypatch, seen, cost=0.5,
+          context={"input_tokens": 2, "cache_read_input_tokens": 100, "cache_creation_input_tokens": 10})
+    row = client.post("/api/sessions", json={"prompt": "first"}).json()
+    row = await _settled(client, row["id"])
+    assert row["context_tokens"] == 112
+    assert row["cost_usd"] == 0.5
+
+    client.post(f"/api/sessions/{row['id']}/message", json={"text": "again"})
+    row = await _settled(client, row["id"])
+    assert row["cost_usd"] == 1.0, "a session's cost is the sum of its turns"
+
+
+async def test_stopping_a_session_that_is_not_running_changes_nothing(client) -> None:
+    """Shutdown stops every session, so before this every idle session read
+    'stopped' after each restart of the server."""
+    row = client.post("/api/sessions", json={"prompt": "first", "start": False}).json()
+    assert client.post(f"/api/sessions/{row['id']}/stop").json()["ok"]
+    assert client.get(f"/api/sessions/{row['id']}").json()["status"] == "created"
+
+
+async def test_compacting_before_the_first_turn_is_refused(client) -> None:
+    row = client.post("/api/sessions", json={"prompt": "first", "start": False}).json()
+    resp = client.post(f"/api/sessions/{row['id']}/compact")
+    assert resp.status_code == 409
+    assert "not had a turn" in resp.json()["detail"]
+
+
+async def test_compacting_sends_the_clis_own_command_and_logs_only_the_boundary(
+    client, monkeypatch
+) -> None:
+    """`/compact` is not something you said, so the log carries the boundary
+    it produced and no prompt. The context is unknown until the next call."""
+    seen: dict = {}
+    _turn(monkeypatch, seen, cost=0.25,
+          context={"input_tokens": 2, "cache_read_input_tokens": 26000, "cache_creation_input_tokens": 100})
+    row = client.post("/api/sessions", json={"prompt": "first"}).json()
+    row = await _settled(client, row["id"])
+    assert row["context_tokens"] == 26102
+
+    assert client.post(f"/api/sessions/{row['id']}/compact").json()["ok"]
+    row = await _settled(client, row["id"])
+    assert seen["prompts"][-1] == "/compact"
+    assert row["context_tokens"] is None
+    assert row["cost_usd"] == 0.5
+
+    events = client.app.state.db.session_events(row["id"])
+    kinds = [e["kind"] for e in events]
+    assert kinds.count("prompt") == 1, kinds
+    assert "status" not in kinds and "session" in kinds
+    folded = next(e for e in events if e["kind"] == "compact")["payload"]
+    assert (folded["pre_tokens"], folded["post_tokens"]) == (26222, 1871)
+
+
 async def test_a_failed_start_leaves_no_worktree_behind(client, paper_repo, monkeypatch) -> None:
     """Otherwise the slug is silently claimed and the next identical prompt
     becomes '-2' for no reason a human can see."""

@@ -28,7 +28,11 @@ Fan out when the questions are **independent** and the answers are **small**:
 
 Do it yourself when the work is **serial** — when what you read second depends
 on what you found first — or when there is one file and you already know which.
-Two round trips to a helper cost more than one Grep.
+Two round trips to a helper cost more than one Grep — and every helper starts
+with the same fixed prefix you did, the system prompt, the tools and the
+project's instructions, some fifteen thousand tokens before it has read a word.
+Three readers to answer a question a Grep would have answered is three prefixes
+for nothing.
 
 ## Ask for the answer, not the search
 

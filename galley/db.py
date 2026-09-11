@@ -68,6 +68,10 @@ ADDED_COLUMNS = {
         "sel_start": "INTEGER",
         "sel_end": "INTEGER",
         "sel_text": "TEXT",
+        # What the session has cost so far, and how big its context was on
+        # the last call — the two numbers that say whether to compact it.
+        "context_tokens": "INTEGER",
+        "cost_usd": "REAL",
     }
 }
 
