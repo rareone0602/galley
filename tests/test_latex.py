@@ -329,3 +329,113 @@ def test_an_error_with_no_file_in_front_takes_texs_own_pointer(tmp_path) -> None
     assert [(p.severity, p.path, p.line) for p in problems] == [
         ("error", "sections/intro.tex", 17)
     ]
+
+
+# -- handing a failure to Claude --------------------------------------------
+
+
+def result(ok, problems, log_tail="") -> latex.CompileResult:
+    return latex.CompileResult(ok=ok, pdf=None, problems=problems, log_tail=log_tail)
+
+
+def test_a_build_that_worked_is_nothing_to_ask_about() -> None:
+    assert latex.fix_request(result(True, [])) is None
+
+
+def test_the_request_names_the_file_and_line_that_broke() -> None:
+    asked = latex.fix_request(
+        result(False, [latex.Problem("error", "Undefined control sequence.", "sections/intro.tex", 41)])
+    )
+    assert asked is not None
+    # The first line becomes the session's title in the rail, so it has to say
+    # what went wrong rather than that something did.
+    head = asked.splitlines()[0]
+    assert head == "Fix the compile error: Undefined control sequence. (sections/intro.tex:41)"
+    assert "sections/intro.tex:41  Undefined control sequence." in asked
+
+
+def test_warnings_are_left_out_of_the_request() -> None:
+    """A real paper carries dozens; none of them is why the build failed."""
+    asked = latex.fix_request(
+        result(
+            False,
+            [
+                latex.Problem("warning", "Overfull \\hbox (12pt too wide)", "main.tex", 9),
+                latex.Problem("error", "Missing $ inserted.", "main.tex", 12),
+            ],
+        )
+    )
+    assert asked is not None
+    assert "Overfull" not in asked
+    assert asked.splitlines()[0] == "Fix the compile error: Missing $ inserted. (main.tex:12)"
+
+
+def test_several_errors_are_counted_and_the_first_one_is_named() -> None:
+    problems = [
+        latex.Problem("error", f"Error number {n}.", "main.tex", n) for n in range(1, 4)
+    ]
+    asked = latex.fix_request(result(False, problems))
+    assert asked is not None
+    assert asked.splitlines()[0] == "Fix 3 compile errors, the first: Error number 1. (main.tex:1)"
+    for n in range(1, 4):
+        assert f"main.tex:{n}  Error number {n}." in asked
+
+
+def test_a_long_list_is_cut_and_says_it_was() -> None:
+    problems = [
+        latex.Problem("error", f"Error number {n}.", "main.tex", n)
+        for n in range(1, latex.MAX_NAMED_ERRORS + 4)
+    ]
+    asked = latex.fix_request(result(False, problems))
+    assert asked is not None
+    assert "… and 3 more" in asked
+    assert f"Error number {latex.MAX_NAMED_ERRORS}." in asked
+    assert f"Error number {latex.MAX_NAMED_ERRORS + 1}." not in asked
+
+
+def test_an_error_with_nowhere_to_go_does_not_invent_a_line() -> None:
+    """Being sent to the wrong sentence is worse than being sent nowhere."""
+    asked = latex.fix_request(result(False, [latex.Problem("error", "Emergency stop.")]))
+    assert asked is not None
+    assert "no file named  Emergency stop." in asked
+    assert ":1" not in asked
+
+
+def test_a_failure_the_parser_could_not_read_still_asks_with_the_log() -> None:
+    asked = latex.fix_request(result(False, [], log_tail="! TeX capacity exceeded\n"))
+    assert asked is not None
+    assert asked.splitlines()[0] == "The paper does not compile, and the log names no error"
+    assert "! TeX capacity exceeded" in asked
+
+
+def test_the_request_tells_the_agent_not_to_rewrite_the_paper() -> None:
+    """The one thing this prompt exists to prevent: a missing brace coming
+    back as a reworded section, with every sentence of it to review."""
+    asked = latex.fix_request(result(False, [latex.Problem("error", "Missing }.", "main.tex", 3)]))
+    assert asked is not None
+    assert "do not reword, reformat or rewrap anything you are not fixing" in asked
+
+
+@needs_latexmk
+def test_a_real_broken_build_produces_a_request_naming_the_real_line(tmp_path) -> None:
+    (tmp_path / "bad.tex").write_text(BROKEN)
+    asked = latex.fix_request(latex.compile_pdf(tmp_path, "bad.tex", tmp_path / "out"))
+    assert asked is not None
+    assert "bad.tex:3" in asked
+    assert "Undefined control sequence" in asked
+
+
+@needs_latexmk
+def test_latexmks_own_verdict_is_not_a_second_error(tmp_path) -> None:
+    """One broken command is one error.
+
+    `==> Fatal error occurred, no output PDF file produced!` is how latexmk
+    says the build stopped. It is an error by every test the parser has, it
+    repeats the line of the real one, and it is nowhere to send anyone."""
+    (tmp_path / "bad.tex").write_text(BROKEN)
+    built = latex.compile_pdf(tmp_path, "bad.tex", tmp_path / "out")
+    assert not built.ok
+    assert [p.message for p in only(built.problems, "error")] == ["Undefined control sequence."]
+    asked = latex.fix_request(built)
+    assert asked is not None
+    assert asked.splitlines()[0] == "Fix the compile error: Undefined control sequence. (bad.tex:3)"

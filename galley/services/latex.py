@@ -98,6 +98,76 @@ def compile_pdf(repo: Path, main_tex: str, outdir: Path, timeout: float = 600) -
     )
 
 
+# -- handing a failure to Claude ---------------------------------------------
+
+
+#: How many errors go into the request by name. Past this the list has stopped
+#: being a list of things to fix, and the log below it is the better evidence.
+MAX_NAMED_ERRORS = 12
+
+#: The half of the request that is the same every time. Its whole job is to
+#: stop a missing brace from coming back as a rewritten paragraph: the merge
+#: pane shows every sentence you touched, and a build fix should be one line in
+#: it. The agent has no shell (see `WRITING_TOOLS` in `agent.py`), so it cannot
+#: run latexmk to check itself — which is exactly why it is told to say what it
+#: is unsure of rather than try something and hope.
+FIX_INSTRUCTIONS = (
+    "Fix the source so latexmk succeeds. Change as little as it takes: do not "
+    "reword, reformat or rewrap anything you are not fixing. You cannot run "
+    "latexmk yourself here, so where the log does not say enough to be sure "
+    "what was meant, fix what you are sure of and say plainly what you are not."
+)
+
+
+def fix_request(result: CompileResult) -> str | None:
+    """What to ask Claude when the build fails, or None when it did not.
+
+    The button is in the PDF pane, but these words are here. A prompt built in
+    the browser could not be tested, and this one decides whether the answer
+    comes back as a one-character fix or as a rewritten section.
+
+    Warnings are left out on purpose. A real paper carries dozens at all times
+    and none of them is why the build failed; naming them buys a turn spent
+    tidying underfull boxes instead of fixing the error.
+    """
+    if result.ok:
+        return None
+    errors = [p for p in result.problems if p.severity == "error"]
+    named = errors[:MAX_NAMED_ERRORS]
+
+    def where(problem: Problem) -> str:
+        if problem.path and problem.line:
+            return f"{problem.path}:{problem.line}"
+        # The log did not say, and the guess could not be checked. Saying so is
+        # better than sending the agent to a line that means nothing.
+        return problem.path or "no file named"
+
+    if not errors:
+        # A failure the parser could not pin down. It still happened, and the
+        # log is the whole of what anyone has to go on.
+        head = "The paper does not compile, and the log names no error"
+    elif len(errors) == 1:
+        head = f"Fix the compile error: {errors[0].message} ({where(errors[0])})"
+    else:
+        head = (
+            f"Fix {len(errors)} compile errors, the first: "
+            f"{errors[0].message} ({where(errors[0])})"
+        )
+
+    lines = [head, ""]
+    if named:
+        lines.append("latexmk could not build the paper. What it reported:")
+        lines.append("")
+        lines += [f"  {where(problem)}  {problem.message}" for problem in named]
+        if len(errors) > len(named):
+            lines.append(f"  … and {len(errors) - len(named)} more")
+        lines.append("")
+    if result.log_tail.strip():
+        lines += ["The end of the log:", "", "```", result.log_tail.rstrip(), "```", ""]
+    lines.append(FIX_INSTRUCTIONS)
+    return "\n".join(lines)
+
+
 # -- reading the log ---------------------------------------------------------
 #
 # TeX's log is a transcript, not a report, and only one thing in it is a
@@ -125,6 +195,13 @@ _LOOKS_LIKE_A_FILE = re.compile(r"/|\.[A-Za-z][\w-]{0,4}$")
 # the list has stopped being a list of things to do.
 MAX_PROBLEMS = 200
 
+#: latexmk's summary of the death: `==> Fatal error occurred, no output PDF
+#: file produced!`, and its siblings. It is an error by every test below and it
+#: is not one: it names no fault and no place to go, it repeats the line of the
+#: real error, and left in it makes one broken command read as "2 errors". That
+#: the build failed is already said by the red border and by the missing PDF.
+LATEXMKS_OWN_VERDICT = "==>"
+
 
 def parse_log(text: str, repo: Path) -> list[Problem]:
     """Everything in a compile log worth putting in front of a person.
@@ -143,7 +220,9 @@ def parse_log(text: str, repo: Path) -> list[Problem]:
 
     def add(severity: str, message: str, path: str | None = None, line: int | None = None) -> None:
         problem = Problem(severity, " ".join(message.split()), path, line)
-        if problem.message and problem not in problems:
+        if not problem.message or problem.message.startswith(LATEXMKS_OWN_VERDICT):
+            return
+        if problem not in problems:
             problems.append(problem)
 
     def here(line: int | None) -> tuple[str | None, int | None]:

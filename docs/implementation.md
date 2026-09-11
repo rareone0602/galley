@@ -897,6 +897,61 @@ editor's own binding from saving twice.
 
 ---
 
+## 31. A failed build is a thing you can hand to someone
+
+Po Hung, 2026-09-11: *"On compilation error: add a button to ask claude propose
+fix patches."*
+
+When `latexmk` fails the pane lists what broke and each line is a link into the
+source. That is the right surface when you know what a `Missing $ inserted` at
+line 412 of a file you did not write means, and no help at all when you do not.
+The button beside the count sends the failure to Claude.
+
+**The words are the server's**, in `latex.fix_request` (`services/latex.py`). A
+prompt assembled in the browser could not be tested, and this one decides
+whether the answer comes back as a one-character fix or as a rewritten section.
+It carries the errors with their files and lines, the end of the log, and one
+paragraph of instruction whose whole job is to stop a missing brace from
+arriving as a reworded paragraph — every sentence of which you would then have
+to review. The first line of it is what the rail shows as the session's title,
+so it names the error rather than announcing that there is one.
+
+**Which Claude gets it is the whole of the decision.** A failure in the paper
+itself starts a session: its worktree is forked from your working copy, so the
+broken line is in it. A failure on a session's own branch is sent to *that*
+session, because a fresh one would be forked from the working copy, which does
+not contain the change that broke, and would go looking for an error that is
+not there. That is the first use `session.message` has ever had.
+
+Three things are deliberately left out.
+
+- **Warnings.** A real paper carries dozens at all times and none of them is why
+  the build failed. Naming them buys a turn spent tidying underfull boxes.
+- **The marked-up review.** `latexdiff` compiles a scratch tree of generated
+  files; its line numbers point at text nobody edits. The route attaches a fix
+  prompt to a real build and to nothing else, so the button's absence there
+  needs no special case in the browser.
+- **latexmk's own verdict.** `==> Fatal error occurred, no output PDF file
+  produced!` is an error by every test the parser has and is not one: it names
+  no fault, repeats the line of the real error, and made one broken command read
+  as **2 errors** in the pane. Filtered in `parse_log`, so the count and the
+  request agree by construction rather than by two matching filters.
+
+The agent has no shell — `Bash` is absent from `WRITING_TOOLS` on purpose — so
+it cannot run `latexmk` to check itself. The prompt says so, and asks it to fix
+what it is sure of and say plainly what it is not, rather than to try something
+and hope. The loop stays the one the rest of Galley is built around: it
+proposes, you review sentence by sentence, you save, you recompile.
+
+The probe drives all of it except the press. It breaks the fixture paper,
+compiles, checks the error names the right line and that the button is there and
+ready, reads the prompt the button would send straight from `GET /api/compile`,
+then restores the file and checks a paper that builds stops asking. Pressing it
+would start a real turn on a real model, and nothing else in the probe spends
+money.
+
+---
+
 ## What has been exercised, and what has not
 
 **Run against the real paper (258 `.tex` files, 13,153 segments):** the

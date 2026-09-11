@@ -207,6 +207,11 @@ export type Work = {
   pdf?: string | null
   problems?: Problem[]
   log_tail?: string
+  /** What to ask Claude when this build failed, written by the server so the
+   *  wording has one owner and can be tested. Null on a build that worked, and
+   *  absent on the marked-up review: that one compiles a latexdiff scratch
+   *  tree, whose line numbers belong to files nobody edits. */
+  fix_prompt?: string | null
 }
 
 export type SyncResult = {

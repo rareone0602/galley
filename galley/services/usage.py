@@ -88,6 +88,7 @@ KINDS: tuple[Kind, ...] = (
     Kind("review.save", "the loop finishing — what actually reaches the paper"),
     # -- waiting, and walls
     Kind("compile.run", "how long a build takes, and how often it fails"),
+    Kind("compile.ask_fix", "whether a failed build is ever handed to Claude"),
     Kind("git.commit", "committing"),
     Kind("git.sync", "publishing, and what stopped it"),
     # `reason` on these two is a short slug, not the message: slugs group into

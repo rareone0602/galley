@@ -43,7 +43,14 @@ def register(app: FastAPI, d: Deps) -> None:
             outdir = d.cfg.paths.state_dir / "build" / session_id
         def build() -> dict:
             started = time.monotonic()
-            result = latex.compile_pdf(repo, d.cfg.paper.main_tex, outdir).as_dict()
+            built = latex.compile_pdf(repo, d.cfg.paper.main_tex, outdir)
+            result = built.as_dict()
+            # A build that failed can be handed to Claude as a request to fix
+            # it. Only a real build: the marked-up review below compiles a
+            # latexdiff scratch tree, whose line numbers belong to generated
+            # files nobody edits, so sending an agent there would send it to a
+            # place that does not exist.
+            result["fix_prompt"] = latex.fix_request(built)
             d.note(
                 "compile.run",
                 {

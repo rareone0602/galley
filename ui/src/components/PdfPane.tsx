@@ -28,6 +28,8 @@ export default function PdfPane({
   latexdiffAvailable,
   onCollapse,
   onJump,
+  onFix,
+  sessionBusy,
   showInPdf,
   buildsPdf,
 }: {
@@ -35,6 +37,14 @@ export default function PdfPane({
   latexdiffAvailable: boolean
   onCollapse: () => void
   onJump: (where: SourceLocation) => void
+  /** Hand a failed build to Claude. `onBranch` says the build that failed was
+   *  a session's own, where the fix belongs to that session: a fresh one is
+   *  forked from the working copy and would not contain the change that broke
+   *  it, so it would go looking for an error that is not there. */
+  onFix: (prompt: string, onBranch: boolean) => Promise<void>
+  /** Whether the open session's agent is mid-turn. It cannot be told anything
+   *  while it is, so the button says why rather than failing on the click. */
+  sessionBusy: boolean
   /** Whether the project has the LaTeX root it names. When it does not there
    *  is no paper to draw, and saying so beats a button that cannot work. */
   buildsPdf: boolean
@@ -48,6 +58,7 @@ export default function PdfPane({
   const [listing, setListing] = useState(false)
   const [mark, setMark] = useState<Mark | null>(null)
   const [note, setNote] = useState<string | null>(null)
+  const [asking, setAsking] = useState(false)
   const poll = useRef<number | null>(null)
 
   function stopPolling() {
@@ -152,6 +163,45 @@ export default function PdfPane({
 
   const busy = work?.state === 'running'
 
+  /* A failed build, with the words to ask about it. The server writes those
+   * words and withholds them when there is nothing to ask — a build that
+   * worked, or the marked-up review, whose line numbers are in generated
+   * files. So the button is here exactly when there is something to send. */
+  const fixPrompt = work?.state === 'done' && !work.ok ? (work.fix_prompt ?? null) : null
+  const onBranch = mode === 'branch'
+  const cannotAsk = onBranch && sessionBusy
+
+  async function askForFix() {
+    if (!fixPrompt) return
+    setAsking(true)
+    record('compile.ask_fix', { mode, errors, continued: onBranch })
+    try {
+      await onFix(fixPrompt, onBranch)
+    } catch {
+      /* The shell shows it and counts it; a second notice here would be the
+       * same failure twice. */
+    } finally {
+      setAsking(false)
+    }
+  }
+
+  const askButton = fixPrompt && (
+    <button
+      className="tiny ask-fix"
+      onClick={askForFix}
+      disabled={asking || cannotAsk}
+      title={
+        cannotAsk
+          ? 'That session is still working. It can be told when it stops.'
+          : onBranch
+            ? 'Tell this session what its own branch does not compile'
+            : 'Start a session on the errors above, with the log'
+      }
+    >
+      {asking ? 'Asking…' : 'Ask Claude to fix'}
+    </button>
+  )
+
   return (
     <section className="pane-column pdf-pane">
       <header className="pdf-bar">
@@ -224,19 +274,25 @@ export default function PdfPane({
           <div className="notice bad">
             <strong>Compile failed</strong>, and the log says nothing this reader
             could pin down. The end of it is in the terminal Galley is running in.
+            {/* Nothing to click through to, which is precisely when handing the
+                log to someone who can read it is worth the most. */}
+            {askButton && <div style={{ marginTop: 8 }}>{askButton}</div>}
           </div>
         )}
 
         {problems.length > 0 && (
           <div className={`pdf-problems${errors ? ' failed' : ''}`}>
-            <button className="pdf-problems-head" onClick={() => setListing((open) => !open)}>
-              <span className="caret">{listing ? '▾' : '▸'}</span>
-              <span>
-                {errors > 0 && <strong>{errors === 1 ? '1 error' : `${errors} errors`}</strong>}
-                {errors > 0 && warnings > 0 && ', '}
-                {warnings > 0 && (warnings === 1 ? '1 warning' : `${warnings} warnings`)}
-              </span>
-            </button>
+            <div className="pdf-problems-head">
+              <button className="fold" onClick={() => setListing((open) => !open)}>
+                <span className="caret">{listing ? '▾' : '▸'}</span>
+                <span>
+                  {errors > 0 && <strong>{errors === 1 ? '1 error' : `${errors} errors`}</strong>}
+                  {errors > 0 && warnings > 0 && ', '}
+                  {warnings > 0 && (warnings === 1 ? '1 warning' : `${warnings} warnings`)}
+                </span>
+              </button>
+              {askButton}
+            </div>
             {listing && (
               <ul className="pdf-problem-list">
                 {problems.map((problem, i) => (

@@ -187,7 +187,10 @@ with `start: false` builds the worktree and stops; committing in that worktree
 is exactly what the end of a turn does, so `/api/diff` cannot tell the
 difference. `seed_review()` in `probe/drive.py` does it, and the sentences it
 rewrites live beside the fixture's own paper in `probe/fixture.py`, so the two
-cannot drift apart. This matters more than it sounds: the merge pane is where
+cannot drift apart. The same rule shapes the compile checks: the probe breaks
+the fixture paper, compiles it, and reads the prompt behind **Ask Claude to fix**
+out of `GET /api/compile` — everything except the press, which would start a
+real turn on a real model. This matters more than it sounds: the merge pane is where
 the time actually goes, and until this it was the one surface no check could
 open.
 

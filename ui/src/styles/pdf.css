@@ -54,19 +54,40 @@ iframe.pdf {
   overflow: hidden;
 }
 .pdf-problems.failed { border-color: var(--content-danger); }
+/* A row, not a button: the count folds the list, and beside it sits the one
+   thing you might want to do about a build that failed. */
 .pdf-problems-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding-right: 9px;
+  color: var(--content-secondary);
+}
+.pdf-problems-head .fold {
   display: flex;
   align-items: baseline;
   gap: 6px;
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   border: none;
   border-radius: 0;
+  background: none;
   text-align: left;
   padding: 5px 9px;
-  color: var(--content-secondary);
+  color: inherit;
 }
 .pdf-problems.failed .pdf-problems-head { color: var(--content-danger); }
 .pdf-problems-head .caret { color: var(--content-disabled); }
+/* The action on a failure, wherever it appears — in the head above, or inside
+   the notice for a failure nothing could be pinned to. */
+.ask-fix {
+  flex: none;
+  border-color: var(--content-danger);
+  color: var(--content-danger);
+  font-weight: 600;
+}
+.ask-fix:disabled { border-color: var(--neutral-30); color: var(--content-disabled); }
 
 .pdf-problem-list {
   list-style: none;

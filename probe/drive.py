@@ -429,7 +429,71 @@ async def run(page):
     check("and the rewrite is really in the file now",
           "Kernel aAcceptance" in (await page.js('document.querySelector(".cm-content")?.textContent') or ""))
 
+    print("\n-- a build that fails, and the button that hands it to Claude --")
+    if shutil.which("latexmk") is None:
+        print("  skip  latexmk is not installed, so there is no build to fail")
+    else:
+        await run_a_failing_build(page)
+
     check("nothing complained in the console", not page.noise, "; ".join(page.noise[:4]))
+
+
+async def run_a_failing_build(page):
+    """Break the paper, compile it, and check what the pane offers.
+
+    The button is never pressed. Pressing it starts a real agent turn on a real
+    model, and nothing else in this probe spends money; what can be checked for
+    free is that the button appears exactly when there is something to send,
+    and that the words behind it name the line that broke.
+    """
+    paper = f"{HERE}/project/paper/main.tex"
+    with open(paper, encoding="utf-8") as handle:
+        whole = handle.read()
+    broken = whole.replace(
+        "We train on the serialisation of the term itself.",
+        "We train on the \\thisCommandDoesNotExist of the term itself.",
+    )
+    assert broken != whole, "the fixture sentence moved"
+    line = next(
+        n for n, text in enumerate(broken.splitlines(), 1) if "thisCommandDoesNotExist" in text
+    )
+    with open(paper, "w", encoding="utf-8") as handle:
+        handle.write(broken)
+
+    async def recompile():
+        return await page.js(
+            '(() => { const b = [...document.querySelectorAll(".pdf-bar button")]'
+            '.find(b => b.textContent.startsWith("Recompile"));'
+            ' if (!b || b.disabled) return false; b.click(); return true })()'
+        )
+
+    check("Recompile runs", await recompile())
+    check("the failure is reported",
+          await page.until('!!document.querySelector(".pdf-problems.failed")', 90))
+    listed = await page.js('document.querySelector(".pdf-problem-list")?.textContent') or ""
+    check("the error names the line that broke", f"main.tex:{line}" in listed, listed[:120])
+    check("and the pane offers to hand it to Claude",
+          await page.until('!!document.querySelector(".ask-fix")', 5))
+    check("the button is ready to press",
+          await page.js('document.querySelector(".ask-fix")?.disabled') is False)
+    check("the count is not inflated by latexmk's own verdict",
+          "1 error" in (await page.js('document.querySelector(".pdf-problems-head")?.textContent') or ""),
+          await page.js('document.querySelector(".pdf-problems-head")?.textContent'))
+    await page.shot("compile-failed")
+
+    asked = json.load(urllib.request.urlopen(f"{APP}api/compile")).get("fix_prompt") or ""
+    check("the request names the file and the line", f"main.tex:{line}" in asked, asked[:160])
+    check("it carries the log as well", "The end of the log" in asked)
+    check("and tells Claude not to reword the paper",
+          "do not reword, reformat or rewrap anything you are not fixing" in asked)
+
+    with open(paper, "w", encoding="utf-8") as handle:
+        handle.write(whole)
+    check("Recompile runs again", await recompile())
+    check("a paper that builds stops asking",
+          await page.until('!document.querySelector(".ask-fix")', 90))
+    check("and nothing is left marked failed",
+          await page.js('!document.querySelector(".pdf-problems.failed")'))
 
 
 if __name__ == "__main__":

@@ -214,6 +214,40 @@ export default function App() {
     [reload],
   )
 
+  /* A build that failed, handed to Claude.
+   *
+   * Which Claude is the whole of the decision. A failure in the paper itself
+   * starts a session: its worktree is forked from the working copy, so the
+   * broken line is in it. A failure on a session's own branch belongs to that
+   * session and to no other — a fresh one would be forked from the working
+   * copy, which does not have the change that broke, and would go looking for
+   * an error that is not there.
+   *
+   * The words are the server's (`latex.fix_request`), so they can be tested;
+   * this decides only where they go. */
+  const askClaudeToFix = useCallback(
+    async (fixPrompt: string, onBranch: boolean) => {
+      setStarting(true)
+      try {
+        if (onBranch && current) {
+          await api.message(current, fixPrompt)
+        } else {
+          const s = await api.createSession(fixPrompt)
+          setCurrent(s.id)
+        }
+        setTab('chat')
+        setError(null)
+        await reload()
+      } catch (e) {
+        setError(String(e), 'pdf')
+        throw e
+      } finally {
+        setStarting(false)
+      }
+    },
+    [current, reload, setError],
+  )
+
   async function startPlain() {
     if (!prompt.trim()) return
     setStarting(true)
@@ -457,6 +491,8 @@ export default function App() {
               latexdiffAvailable={config?.latexdiff ?? false}
               onCollapse={togglePdf}
               onJump={jumpToSource}
+              onFix={askClaudeToFix}
+              sessionBusy={session?.running ?? false}
               showInPdf={showInPdf}
               buildsPdf={config?.builds_pdf ?? true}
             />
