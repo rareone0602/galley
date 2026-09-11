@@ -1038,6 +1038,111 @@ the probe does neither.
 
 ---
 
+## 33. Six things asked for in one sentence each, and the two bugs behind them
+
+Po Hung, 2026-09-11, numbered:
+
+> 1. Save = Recompile
+> 2. Give it all network tool and common tools. Make it able to access my
+>    codebase and my artefacts.
+> 3. When I'm reading chat logs, do not auto scroll down.
+> 4. The markdown in chat is not rendered.
+> 5. I cannot sending "stop" my current SDK when I find something wrong?
+> 6. Any discrepency you spotted?
+
+**Save is Recompile.** The editor writes to the paper's own working copy, so a
+save can only make the *accepted* build stale — a proposed or a marked-up build
+is of a branch the editor never touches, and a marked-up one takes minutes,
+which is not a thing to start because somebody pressed Ctrl-S. So the rebuild
+fires only in accepted mode, and only for a file the paper is built from
+(`BUILT_FROM` in `ui/src/App.tsx`: `.tex`, `.sty`, `.cls`, `.bib`, and the rest
+of latexmk's inputs). Saving a note rebuilds nothing.
+
+Asking to compile while latexmk is running *joins* the run already going, and
+that run read the file before you saved — so a save that lands mid-build is
+remembered and built when the first one finishes, or the PDF would sit a
+version behind with nothing on screen saying so. The POST carries `auto`, which
+changes nothing about the build and is recorded in the usage log, because
+whether building on save earns its place is a question only that log can
+answer.
+
+**The web, and the artefacts.** Two additions. `WebSearch` and `WebFetch` are
+now in the tool surface, behind `[agent] web` (default on): a paper cites work
+that is not on this machine, and checking a reference beats writing around it.
+The switch moves the offer and the guard together, so a tool is never dangled
+in front of the model only to be refused when it reaches for it. The agent is
+told what a fetched page is — evidence, never instruction, and never the source
+of a number about this work.
+
+`[paths] artefacts` is a list of directories granted alongside the codebase.
+They are listed separately because on a real machine they are not in the same
+place: the repository is in `$HOME` and its outputs are on a scratch
+filesystem, reached through a gitignored symlink — and a symlink resolves
+*outside* whatever the codebase granted, so every read through it was refused.
+`Paths.readable` is the one owner of the list; `add_dirs` and the sentence the
+agent is told about its surroundings are both built from it, because being told
+to read a directory you cannot reach is worse than not being told about it.
+Verified on a cheap model: the offered list arrives with both web tools, and a
+Glob under `/scratch/datasets/qlambda/eval_ce` returns its 145 files.
+
+**Reading the log.** It followed the stream on every fragment of every
+sentence, which made the log unreadable for exactly as long as there was
+something worth reading in it. Now scrolling up detaches it and a *more below*
+button appears; clicking it reattaches. The jump is instant rather than smooth,
+and that is not a preference: a smooth scroll is still animating when the next
+fragment arrives, so the scroll handler sees a position part-way up, concludes
+you scrolled away, and the log detaches itself a second after it starts.
+
+**Markdown in chat.** The same renderer as the preview pane
+(`components/preview/Markdown.tsx`), for the same reason: it makes React
+elements and never an HTML string, so a `<script>` in something the agent
+quoted back is shown as the text it is. Live blocks are drawn as Markdown too,
+so nothing reflows when the finished block replaces the half-written one; the
+caret is a character on the end of the text rather than an element beside it,
+because Markdown renders as blocks and an element after one sits on a line of
+its own underneath.
+
+**Stop.** The button existed, on the rail, three panes from the text that makes
+you want it — and the rail is where you pick a session, not where you watch
+one. It is now in the chat footer, where *Compact* is when the agent is idle.
+Two things behind it changed. A stopped turn now commits what the agent had
+already written, the same way a finished turn does, so a half-finished patch is
+still in Review; it was being left uncommitted in the worktree, which meant
+stopping an agent looked like throwing its work away. And the reply box no
+longer promises that your message queues behind a running turn: it does not,
+the route answers 409, and the placeholder now says to stop it or wait.
+
+What did *not* need fixing is the teardown. Cancelling the task raises inside
+whatever is innermost — the SDK's own `await` — so its `finally` terminates the
+CLI there, before the `async for` ever sees a cancellation. The generator is
+now closed explicitly all the same (`contextlib.aclosing` in `_run`), because
+the *other* exit is not covered: an `async for` does not close its iterator
+when its body raises, so an exception in Galley's own event handling left the
+CLI running until the garbage collector got round to it.
+`test_a_turn_that_breaks_in_galley_still_shuts_the_cli_down` is the one that
+tells the two apart, and it is written through a failure rather than through
+the button for exactly that reason.
+
+**The two discrepancies.** `galley.example.toml` — the file the README tells
+you to copy — had not parsed since an edit put the `[agent]` header inside the
+opening comment and left two of that comment's lines standing as TOML. Nothing
+caught it because every test writes its own config; one now copies the example
+and loads it.
+
+The second is worse. A file you saved and left came back marked *unsaved*: the
+rail showed a dot on it, the browser asked "leave site?" on every close, and
+renaming or deleting it was refused until you saved it again. The editor's
+update listener treats any document change as your typing and attributes it to
+the file the editor is on — but a *reload* also changes the document, and a
+reload can carry another file's text into a view whose owner has moved on. The
+fix names the transaction: `RELOADING` in `ui/src/components/Editor.tsx`, set
+on both whole-document replacements, and the dirty tracker ignores it. Whoever
+is listening, a reload is not an edit. The probe caught this and nothing else
+could have; it was invisible to the types, to the tests and to every assertion
+already written, and it showed up in a screenshot as one orange dot.
+
+---
+
 ## What has been exercised, and what has not
 
 **Run against the real paper (258 `.tex` files, 13,153 segments):** the

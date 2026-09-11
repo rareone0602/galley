@@ -70,7 +70,14 @@ port = {port}
 enabled = true
 """
 
+#: A build input that is not the prose. The probe saves this one to check that
+#: a save rebuilds the paper — editing `main.tex` would put the probe's own
+#: line into the sentence the merge pane is about to show.
+PREAMBLE = """\\providecommand{\\probenote}[1]{}
+"""
+
 PAPER = """\\documentclass{article}
+\\input{preamble}
 \\begin{document}
 The kernel either accepts a candidate as a proof of the statement or it does not.
 Acceptance is therefore decided rather than scored.
@@ -104,6 +111,7 @@ def build(root: Path, port: int) -> Path:
     # Prose, one sentence to a line, because the merge pane reads sentences and
     # the probe seeds a session that rewrites two of them.
     (paper / "main.tex").write_text(PAPER)
+    (paper / "preamble.tex").write_text(PREAMBLE)
     (paper / "README.md").write_text(README)
     # House style for whoever writes here, agent included. Galley never reads
     # it; the agent does, because its cwd is a worktree of this project. The

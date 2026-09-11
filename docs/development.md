@@ -109,11 +109,37 @@ and the callback both ask it. If you add a tool or a tier, change `decide`.
 **Name the tools, or the model has no Grep.** Left unset, the CLI's default
 tool set is some thirty tools with `Grep` and `Glob` *not* among them — they sit
 behind a `ToolSearch` loader, which the guard refuses. One real session
-searched the paper with `Read` alone that way. `TOOL_SURFACE` in
+searched the paper with `Read` alone that way. `tool_surface()` in
 `galley/services/agent.py` is passed as `tools=` and is exactly what `decide`
-allows; add a tool to one of the three sets and both the offer and the guard
+allows; add a tool to one of the four sets and both the offer and the guard
 change together. The cheap way to see what the model is actually offered is the
 `init` system message's `tools` list.
+
+**A symlink resolves outside whatever `add_dirs` granted.** Granting the
+codebase does not grant the outputs it points at: `data -> /scratch/datasets/x`
+leaves the agent refused on every read through it, silently, with nothing in
+the log that names the reason. `[paths] artefacts` is the list for those, and
+`Paths.readable` is its one owner — `add_dirs` and the sentence the agent is
+told about its surroundings both come from there, so it cannot be told to read
+somewhere it cannot reach.
+
+**A reload is not an edit, and the editor has to be told.** CodeMirror's update
+listener sees a document change and Galley reads it as your typing, attributed
+to whichever file the editor is on. A whole-document replacement — a file
+re-read after a merge, or *Reload* — is also a document change, and it can
+carry one file's text into a view whose owner has moved on to another. Every
+such dispatch carries the `RELOADING` annotation and the dirty tracker skips
+it. Without that, a file you saved and left comes back marked unsaved: a dot in
+the rail, "leave site?" on every close, and a rename or delete refused until
+you save it again.
+
+**Stop was never the thing that leaks a CLI process.** Cancelling the turn's
+task raises inside the SDK's own `await`, so its teardown runs there. What
+leaks is an exception in `_run`'s *body*: an `async for` does not close its
+iterator when the body raises, and the generator then waits on the garbage
+collector while the subprocess keeps spending. Hence `contextlib.aclosing`. If
+you write a test for this, write it through a failure; a test through the
+button passes either way and proves nothing.
 
 **Restarting takes two Ctrl-C while a tab is open.** The chat pane holds an
 SSE stream open, and uvicorn's graceful shutdown waits for it — "Waiting for
@@ -195,7 +221,25 @@ Three things about it worth knowing before you add a check:
   can only find what you thought to ask. The third was in the merge pane: every
   assertion about the in-place rewrite box passed, and the header behind it read
   `1 rewritten · 1 to go` when nothing had been typed. Clicking into a sentence
-  had become an answer.
+  had become an answer. The fourth was a single orange dot in the file rail,
+  on a file that had been saved: a reload was being read as your typing, and
+  the fix is the `RELOADING` annotation above.
+
+**A chat log is reachable the same way.** `seed_chat()` writes `text` rows
+straight into the `events` table, and the SSE route replays the durable log
+before it subscribes — so what the browser sees is exactly what a tab
+reconnecting after a real turn sees. That is how the Markdown checks and the
+scrolling checks run without a model. What it cannot reach is an event
+*arriving* while you read, so "scrolling up stays scrolled up" is checked and
+"a new reply does not drag you down" is not.
+
+**Two ordering traps in the probe.** `Input.insertText` stops arriving at the
+editor once the merge pane has had the keyboard — the editor is still editable
+and still focused, so it is CDP that gives up, not Galley; any section that
+types into the editor has to come first. And nothing in the probe may type into
+`main.tex` and save it, because the merge pane is about to show the sentences
+in that file and a line typed there arrives inside one of them. `preamble.tex`
+exists in the fixture for that: a real build input that is not the prose.
 
 **The review pane is reachable without paying for a turn.** `POST /api/sessions`
 with `start: false` builds the worktree and stops; committing in that worktree

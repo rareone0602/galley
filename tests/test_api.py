@@ -290,6 +290,65 @@ async def test_stopping_a_session_that_is_not_running_changes_nothing(client) ->
     assert client.get(f"/api/sessions/{row['id']}").json()["status"] == "created"
 
 
+def _hanging_turn(monkeypatch, seen: dict):
+    """A turn that writes one thing and then never ends, like a real one that
+    has gone wrong: the only way out of it is Stop."""
+    from claude_agent_sdk import SystemMessage
+
+    async def fake_query(prompt, options):
+        try:
+            yield SystemMessage(subtype="init", data={"session_id": "claude-1", "model": "m"})
+            (Path(options.cwd) / "half.tex").write_text("\\section{Half a patch}\n")
+            seen["writing"] = True
+            await asyncio.sleep(3600)
+            yield SystemMessage(subtype="init", data={"session_id": "claude-1", "model": "m"})
+        finally:
+            # The SDK terminates the CLI subprocess here. Nothing does it if
+            # the generator is never closed.
+            seen["closed"] = True
+
+    monkeypatch.setattr("galley.services.agent.query", fake_query)
+
+
+async def _until(check, tries: int = 80) -> None:
+    for _ in range(tries):
+        if check():
+            return
+        await asyncio.sleep(0.05)
+    raise AssertionError("never happened")
+
+
+async def test_stopping_a_turn_ends_it(client, monkeypatch) -> None:
+    """The route reaches the running turn at all. What the teardown does is
+    pinned in test_agent, where it can be observed the moment stop returns."""
+    seen: dict = {}
+    _hanging_turn(monkeypatch, seen)
+    row = client.post("/api/sessions", json={"prompt": "runs away"}).json()
+    await _until(lambda: seen.get("writing"))
+
+    assert client.post(f"/api/sessions/{row['id']}/stop").json()["ok"]
+    assert client.get(f"/api/sessions/{row['id']}").json()["status"] == "stopped"
+    assert seen.get("closed")
+
+
+async def test_stopping_a_turn_keeps_what_it_had_already_written(
+    client, monkeypatch
+) -> None:
+    """Half a patch is still a patch. It was being left uncommitted in the
+    worktree, which meant Review showed nothing and the work was invisible."""
+    seen: dict = {}
+    _hanging_turn(monkeypatch, seen)
+    row = client.post("/api/sessions", json={"prompt": "half a job"}).json()
+    await _until(lambda: seen.get("writing"))
+    client.post(f"/api/sessions/{row['id']}/stop")
+
+    changed = [f["path"] for f in client.get(f"/api/sessions/{row['id']}").json()["files"]]
+    assert changed == ["half.tex"]
+
+    kinds = [e["kind"] for e in client.app.state.db.session_events(row["id"])]
+    assert kinds.count("turn_end") == 1, "stopping is an ending, and the log says so"
+
+
 async def test_compacting_before_the_first_turn_is_refused(client) -> None:
     row = client.post("/api/sessions", json={"prompt": "first", "start": False}).json()
     resp = client.post(f"/api/sessions/{row['id']}/compact")
@@ -439,6 +498,26 @@ async def test_asking_twice_joins_the_run_already_going(client, monkeypatch) -> 
             break
         await asyncio.sleep(0.05)
     assert len(calls) == 1
+
+
+async def test_a_build_records_whether_a_save_set_it_off(client, monkeypatch) -> None:
+    """Saving a file rebuilds the paper, the way Overleaf does. Whether that
+    earns its place is a question only the usage log can answer, so a build
+    says which of the two it was."""
+    import galley.services.latex as latex
+
+    monkeypatch.setattr(
+        latex, "compile_pdf", lambda *a, **k: latex.CompileResult(True, None, [], "")
+    )
+    client.post("/api/compile", json={"auto": True})
+    for _ in range(50):
+        if client.get("/api/compile").json()["state"] != "running":
+            break
+        await asyncio.sleep(0.05)
+
+    rows = client.app.state.db.usage_since(0)
+    runs = [r for r in rows if r["kind"] == "compile.run"]
+    assert runs and runs[-1]["detail"]["auto"] is True
 
 
 def test_a_review_needs_a_session(client) -> None:

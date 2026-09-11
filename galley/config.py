@@ -61,6 +61,24 @@ class Paths:
     #: ships one and this points at it unless you name another; it is a local
     #: plugin directory, `<dir>/skills/<name>/SKILL.md`.
     skills_dir: Path | None = None
+    #: Where the work the paper describes actually landed: outputs, run
+    #: records, measured numbers. Read-only, like the codebase, and separate
+    #: from it because on a real machine they are not in the same place — a
+    #: repository lives in $HOME and its outputs live on a scratch filesystem
+    #: behind a symlink, which resolves outside anything the codebase grants.
+    #: A paper whose numbers are typed in by hand has none of these.
+    artefacts: tuple[Path, ...] = ()
+
+    @property
+    def readable(self) -> tuple[Path, ...]:
+        """Everything outside the worktree the agent may read.
+
+        One owner of that list. `add_dirs` is what grants access, and both the
+        SDK options and the sentence the agent is told about its surroundings
+        are built from here, so they cannot drift apart.
+        """
+        mirror = (self.code_mirror,) if self.code_mirror is not None else ()
+        return (*mirror, *self.artefacts)
 
 
 @dataclass(frozen=True)
@@ -125,6 +143,13 @@ class Agent:
     #: 1 lets it delegate; 2 lets those helpers delegate once more. See
     #: `services.agent` for why 2 is the ceiling.
     fan_out_depth: int = 2
+    #: Whether the agent may read the web — `WebSearch` to find a page and
+    #: `WebFetch` to read one. Worth having: a paper cites work that is not on
+    #: this machine, and checking a reference beats writing around it. It is a
+    #: switch rather than a given because it is the one thing here that brings
+    #: text from outside onto a machine holding an unpublished manuscript, and
+    #: a project that never needs it should not carry the surface.
+    web: bool = True
     #: Which skills the agent may use. "workbench" is the ones in your own
     #: skills directory and nothing else — a paper workbench has no use for
     #: Claude Code's own `security-review` or `keybindings-help`, and every
@@ -352,6 +377,18 @@ def load(path: Path | None = None) -> Config:
             raise ConfigError(f"{path}: [paths] {key} is required")
         return value
 
+    def _path_list(section: dict, key: str) -> tuple[Path, ...]:
+        """A list of paths, or a single one written without the brackets."""
+        value = section.get(key)
+        if value is None:
+            return ()
+        items = value if isinstance(value, (list, tuple)) else [value]
+        return tuple(
+            found
+            for found in (_path({key: item}, key) for item in items)
+            if found is not None
+        )
+
     paths_raw = raw.get("paths", {})
     paths = Paths(
         paper_repo=_required(paths_raw, "paper_repo"),
@@ -363,6 +400,7 @@ def load(path: Path | None = None) -> Config:
         skills_dir=_path(paths_raw, "skills_dir") or (
             BUNDLED_SKILLS if BUNDLED_SKILLS.is_dir() else None
         ),
+        artefacts=_path_list(paths_raw, "artefacts"),
     )
 
     p = raw.get("paper", {})
@@ -395,6 +433,7 @@ def load(path: Path | None = None) -> Config:
         effort=_effort(a.get("effort", "xhigh"), path),
         thinking=_thinking(a.get("thinking"), path),
         fan_out_depth=_depth(a.get("fan_out_depth"), path),
+        web=bool(a.get("web", True)),
         skills=_skills(a.get("skills")),
     )
 
@@ -433,6 +472,12 @@ def validate(cfg: Config, raw_paper: dict | None = None) -> None:
         raise ConfigError(f"code_mirror {cfg.paths.code_mirror} does not exist")
     if cfg.paths.skills_dir is not None and not cfg.paths.skills_dir.is_dir():
         raise ConfigError(f"skills_dir {cfg.paths.skills_dir} does not exist")
+    for artefacts in cfg.paths.artefacts:
+        # These are the likeliest path in the file to go stale: a scratch
+        # filesystem is reaped, and a directory the agent is told to read and
+        # cannot is worse than one it was never offered.
+        if not artefacts.is_dir():
+            raise ConfigError(f"[paths] artefacts names {artefacts}, which does not exist")
     if cfg.server.bind not in ("127.0.0.1", "localhost", "::1"):
         # Not fatal, but this port can spawn agents and write files in the
         # paper repo, so it should never be a surprise.

@@ -13,6 +13,11 @@ import { configure, record } from './usage'
 
 type Tab = 'editor' | 'review' | 'chat' | 'git'
 
+/** Whether saving this file could change the printed page. A note, a script or
+ *  a data file cannot, and rebuilding the paper because you edited a README
+ *  would be latexmk for nothing. */
+const BUILT_FROM = /\.(tex|sty|cls|bib|bst|ltx|def|clo|cfg)$/i
+
 /**
  * Overleaf's shape: project files on the left, source in the middle, PDF on
  * the right, dividers you can drag.
@@ -58,6 +63,10 @@ export default function App() {
   /* Ctrl-S pressed outside the editor's own text. A number rather than a flag,
    * so two presses are two saves. */
   const [saveNow, setSaveNow] = useState(0)
+  /* When a file the paper is built from was last written. The PDF pane watches
+   * it and rebuilds, which is what Save means in Overleaf and is what you
+   * expect from anything that looks like Overleaf. */
+  const [savedAt, setSavedAt] = useState(0)
   const [treeKey, setTreeKey] = useState(0)
   const [fileKey, setFileKey] = useState(0)
   const [jumpTo, setJumpTo] = useState<{ path: string; line: number; nonce: number } | null>(
@@ -168,6 +177,11 @@ export default function App() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [tab, openPath])
+
+  const noteSaved = useCallback((path: string) => {
+    setTreeKey((k) => k + 1)
+    if (BUILT_FROM.test(path)) setSavedAt(Date.now())
+  }, [])
 
   const openFile = useCallback((path: string) => {
     setOpenPath(path)
@@ -455,7 +469,7 @@ export default function App() {
                   path={openPath}
                   reloadKey={fileKey}
                   onDirtyChange={markDirty}
-                  onSaved={() => setTreeKey((k) => k + 1)}
+                  onSaved={noteSaved}
                   onAsk={askAboutSelection}
                   busy={starting}
                   jumpTo={jumpTo}
@@ -471,7 +485,11 @@ export default function App() {
                   <div className="empty">Pick a session to review its changes.</div>
                 ))}
               {tab === 'chat' &&
-                (session ? <LogPane session={session} /> : <div className="empty">Pick a session.</div>)}
+                (session ? (
+                  <LogPane session={session} onChanged={reload} />
+                ) : (
+                  <div className="empty">Pick a session.</div>
+                ))}
               {tab === 'git' && <GitPanel />}
             </div>
           </section>
@@ -509,6 +527,7 @@ export default function App() {
               sessionBusy={session?.running ?? false}
               showInPdf={showInPdf}
               buildsPdf={config?.builds_pdf ?? true}
+              savedAt={savedAt}
             />
             {preview && openPath && (
               <PreviewPane

@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { api, type LogEvent, type Session } from '../api'
+import Markdown from './preview/Markdown'
 
 /** Event kinds that are written down. Each arrives once, with an id, and is
  *  replayed from the log when a tab reconnects. */
@@ -12,6 +13,25 @@ const KEPT = [
 const tokens = (n: number) =>
   n >= 10000 ? `${Math.round(n / 1000)}k` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
 
+/** Where the next word will appear. A character, not an element — see `Live`. */
+const CARET = '\u258c'
+
+/**
+ * What the agent writes is Markdown, so it is drawn as Markdown.
+ *
+ * The same renderer as the preview pane, and for the same reason: it turns
+ * the text into React elements rather than into an HTML string, so a `<script>`
+ * in something the agent quoted back is shown as the text it is. Galley's page
+ * is same-origin with the paper and can write to it, so that is not a nicety.
+ *
+ * There is no file behind chat text, so links to project files render as plain
+ * words rather than as buttons that would not know what to open.
+ */
+function Prose({ text }: { text: string }) {
+  const drawn = useMemo(() => <Markdown text={text} path="" />, [text])
+  return drawn
+}
+
 /** A block the agent is still writing. It has no id and is in no log: the
  *  finished version arrives a moment later as an ordinary `text` event, and
  *  replaces it. `index` is which block of the current reply this is, so a
@@ -23,17 +43,36 @@ type LiveBlock = { index: number; role: 'text' | 'thinking'; text: string; agent
 const at = (agent: string | null, index: number) => `${agent ?? 'you'}:${index}`
 
 /** The agent's live log: text, thinking, and every tool call it makes. */
-export default function LogPane({ session }: { session: Session }) {
+export default function LogPane({
+  session,
+  onChanged,
+}: {
+  session: Session
+  /** Something here changed the session — it was stopped, or folded. The rail
+   *  polls every few seconds anyway; this is so it does not have to be waited
+   *  for after a button you just pressed. */
+  onChanged?: () => void
+}) {
   const [events, setEvents] = useState<LogEvent[]>([])
   const [live, setLive] = useState<LiveBlock[]>([])
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
   const [compacting, setCompacting] = useState(false)
-  const bottom = useRef<HTMLDivElement>(null)
+  const [stopping, setStopping] = useState(false)
+  const [trouble, setTrouble] = useState<string | null>(null)
+  const scroller = useRef<HTMLDivElement>(null)
+  /** Whether the log is following the agent. True while you are at the
+   *  bottom; false the moment you scroll up to read something. */
+  const [following, setFollowing] = useState(true)
+  /** Something arrived while you were reading further up. */
+  const [behind, setBehind] = useState(false)
 
   useEffect(() => {
     setEvents([])
     setLive([])
+    setFollowing(true)
+    setBehind(false)
+    setTrouble(null)
     const source = new EventSource(`/api/sessions/${session.id}/events`)
 
     // A finished block lands here. It supersedes whatever was being streamed,
@@ -71,22 +110,84 @@ export default function LogPane({ session }: { session: Session }) {
     }
   }
 
-  // Follow the stream, not just the finished blocks.
+  /* Follow the agent, unless you are reading.
+   *
+   * Scrolling up is the whole of the gesture: the log stops moving, and a
+   * button appears saying there is more below. It used to drag you to the
+   * bottom on every fragment of every sentence, which made the log unreadable
+   * for exactly as long as there was something worth reading in it.
+   *
+   * The jump is instant rather than smooth on purpose. A smooth scroll is
+   * still animating when the next fragment arrives, so the handler below sees
+   * a position part-way up and concludes you scrolled away — and the log
+   * detaches itself a second after it starts. */
+  const toBottom = (behavior: ScrollBehavior = 'auto') => {
+    const el = scroller.current
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior })
+  }
+
   const written = live.reduce((n, b) => n + b.text.length, 0)
   useEffect(() => {
-    bottom.current?.scrollIntoView({ behavior: 'smooth' })
+    if (following) toBottom()
+    else if (events.length || written) setBehind(true)
+    // `following` is deliberately not a dependency: turning it back on scrolls
+    // through the button below, and re-running here on every change of it
+    // would fight the scroll that turned it off.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [events.length, written])
+
+  /** At the bottom, near enough. A few pixels of slack covers a half-rendered
+   *  line and a trackpad that stops just short. */
+  const NEAR = 40
+  function watchScroll() {
+    const el = scroller.current
+    if (!el) return
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= NEAR
+    setFollowing(atBottom)
+    if (atBottom) setBehind(false)
+  }
+
+  function catchUp() {
+    setFollowing(true)
+    setBehind(false)
+    toBottom('smooth')
+  }
 
   async function send() {
     if (!draft.trim()) return
     setSending(true)
+    setTrouble(null)
     try {
       await api.message(session.id, draft)
       setDraft('')
+      catchUp()
     } catch (e) {
-      alert(String(e))
+      setTrouble(String(e))
     } finally {
       setSending(false)
+    }
+  }
+
+  /* Stop, where you are standing when you want it.
+   *
+   * It was only ever on the rail, three panes away from the text that made
+   * you want it — and the rail is where you pick a session, not where you
+   * watch one. This is the button for "that is not what I meant", and it has
+   * to be under the thing that was not what you meant.
+   *
+   * What it does is end the turn: the CLI is shut down, and whatever the agent
+   * had already written is committed to the branch, so a half-finished patch
+   * is still in Review afterwards. */
+  async function stop() {
+    setStopping(true)
+    setTrouble(null)
+    try {
+      await api.stopSession(session.id)
+      onChanged?.()
+    } catch (e) {
+      setTrouble(String(e))
+    } finally {
+      setStopping(false)
     }
   }
 
@@ -101,10 +202,12 @@ export default function LogPane({ session }: { session: Session }) {
       : null
   async function compact() {
     setCompacting(true)
+    setTrouble(null)
     try {
       await api.compact(session.id)
+      onChanged?.()
     } catch (e) {
-      alert(String(e))
+      setTrouble(String(e))
     } finally {
       setCompacting(false)
     }
@@ -116,24 +219,38 @@ export default function LogPane({ session }: { session: Session }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <div className="log grow" style={{ overflowY: 'auto', paddingRight: 6 }}>
-        {events.length === 0 && live.length === 0 && (
-          <div className="empty">Waiting for the agent…</div>
+      <div className="log-scroll grow">
+        <div
+          className="log"
+          ref={scroller}
+          onScroll={watchScroll}
+          style={{ overflowY: 'auto', paddingRight: 6, height: '100%' }}
+        >
+          {events.length === 0 && live.length === 0 && (
+            <div className="empty">Waiting for the agent…</div>
+          )}
+          {events.map((e) => (
+            <Event key={e.id} event={e} helper={helpers.get(e.payload?.agent)} />
+          ))}
+          {live.map((b) => (
+            <Live key={at(b.agent, b.index)} block={b} helper={helpers.get(b.agent ?? '')} />
+          ))}
+        </div>
+        {behind && (
+          <button className="tiny catch-up" onClick={catchUp}>
+            ↓ more below
+          </button>
         )}
-        {events.map((e) => (
-          <Event key={e.id} event={e} helper={helpers.get(e.payload?.agent)} />
-        ))}
-        {live.map((b) => (
-          <Live key={at(b.agent, b.index)} block={b} helper={helpers.get(b.agent ?? '')} />
-        ))}
-        <div ref={bottom} />
       </div>
+      {trouble && <div className="notice bad">{trouble}</div>}
       <div className="row" style={{ marginTop: 10, alignItems: 'flex-end' }}>
         <textarea
           rows={2}
           value={draft}
           placeholder={
-            session.running ? 'The agent is working; your message queues behind it.' : 'Reply…'
+            session.running
+              ? 'The agent is working. Stop it below, or wait for the turn to end.'
+              : 'Reply…'
           }
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
@@ -149,17 +266,28 @@ export default function LogPane({ session }: { session: Session }) {
           {soFar.join(' · ')}
         </span>
         <span className="grow" />
-        <button
-          className="tiny compact"
-          onClick={compact}
-          disabled={compacting || !!cannotCompact}
-          title={
-            cannotCompact ??
-            'Fold the conversation so far into a short summary. The session carries on from it, and every call after this pays for the summary instead of the whole transcript.'
-          }
-        >
-          {compacting ? 'Compacting…' : 'Compact'}
-        </button>
+        {session.running ? (
+          <button
+            className="tiny stop"
+            onClick={stop}
+            disabled={stopping}
+            title="End this turn now. The CLI is shut down and whatever it has already written is committed to the branch, so anything worth keeping is still in Review."
+          >
+            {stopping ? 'Stopping…' : 'Stop'}
+          </button>
+        ) : (
+          <button
+            className="tiny compact"
+            onClick={compact}
+            disabled={compacting || !!cannotCompact}
+            title={
+              cannotCompact ??
+              'Fold the conversation so far into a short summary. The session carries on from it, and every call after this pays for the summary instead of the whole transcript.'
+            }
+          >
+            {compacting ? 'Compacting…' : 'Compact'}
+          </button>
+        )}
       </div>
     </div>
   )
@@ -182,13 +310,17 @@ function Live({ block, helper }: { block: LiveBlock; helper?: string }) {
       </div>
     )
   }
+  /* Drawn as Markdown while it is still being typed, so nothing reflows when
+   * the finished block arrives and replaces it. A half-written code fence is
+   * closed by the parser, which is why an unfinished block looks sensible.
+   *
+   * The caret goes into the text rather than beside it. Markdown renders as
+   * blocks, so a caret element after one would sit on a line of its own
+   * underneath; a character on the end lands where the next word will. */
   return (
     <div className={`ev text assistant${sub}`}>
       <div className="who">{helper ?? 'assistant'}</div>
-      <p>
-        {block.text}
-        <span className="caret" />
-      </p>
+      <Prose text={block.text + CARET} />
     </div>
   )
 }
@@ -210,7 +342,7 @@ function Event({ event, helper }: { event: LogEvent; helper?: string }) {
       return (
         <div className={`ev text ${p.role}${sub}`}>
           <div className="who">{helper ?? p.role}</div>
-          <p>{p.text}</p>
+          <Prose text={String(p.text ?? '')} />
         </div>
       )
     case 'thinking':
@@ -270,8 +402,19 @@ function Event({ event, helper }: { event: LogEvent; helper?: string }) {
       return <RateLimit info={p} />
     case 'error':
       return <div className="ev err">{p.error}</div>
-    case 'session':
     case 'turn_end':
+      /* Ordinary endings are silent — the result line above already says the
+       * turn finished. A stop is not ordinary: it is a thing you did, and what
+       * happened to the half-written patch is the question you will have. */
+      if (!p.stopped) return null
+      return (
+        <div className="ev compact">
+          {p.committed
+            ? 'stopped by you; what it had written is committed to the branch'
+            : 'stopped by you; it had written nothing yet'}
+        </div>
+      )
+    case 'session':
       return null
     default:
       return null

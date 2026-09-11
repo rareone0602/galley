@@ -7,7 +7,10 @@
 #
 # To run Galley for a second project, put a galley.local.toml in that project's
 # own directory and start it there — `galley` walks up from the working
-# directory to find one, or takes `--config`. Give it a different [agent]
+# directory to find one, or takes `--config`. Give it a different [server] port
+# and a different [paths] state_dir, or the two will fight over the database.
+
+[agent]
 # Which Claude your sessions talk to.
 #
 # An alias — "opus", "sonnet", "haiku" — keeps meaning the current model of
@@ -65,8 +68,15 @@ fan_out_depth  = 2
 # offered costs a line of the agent's attention.
 skills         = "workbench"
 
-[server] port
-# and a different [paths] state_dir, or the two will fight over the database.
+# Whether the agent may read the web: `WebSearch` to find a page, `WebFetch` to
+# read one. On by default — a paper cites work that is not on this machine, and
+# checking a reference beats writing around it.
+#
+# It is a switch because it is the one thing here that brings text from outside
+# onto a machine holding an unpublished manuscript. What comes back is evidence
+# and never instruction, and the agent is told so; turn it off for a project
+# where nothing outside should ever reach the draft.
+web            = true
 
 [paths]
 # The repository whose prose you are writing. The one required setting.
@@ -81,6 +91,14 @@ state_dir   = ".galley"
 # to it and can never write there. Leave it out if the paper has no such
 # companion — most do not.
 # code_mirror = "~/code/my-project"
+
+# Optional. Where the work the paper describes actually landed: outputs, run
+# records, measured numbers. Read-only, like the codebase, and listed
+# separately because on a real machine they are not in the same place — a
+# repository lives in your home directory and its outputs on a scratch
+# filesystem, usually behind a symlink, and a symlink resolves outside anything
+# the codebase granted. Name the trees worth reading, not the whole filesystem.
+# artefacts   = ["/scratch/datasets/my-project/runs"]
 
 # Optional. Habits you want the agent to have, written down once. Defaults to
 # Galley's own `galley-skills/`, which ships three and is meant to be edited —

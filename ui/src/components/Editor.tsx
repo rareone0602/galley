@@ -8,7 +8,14 @@ import {
   syntaxHighlighting,
 } from '@codemirror/language'
 import { highlightSelectionMatches, search, searchKeymap } from '@codemirror/search'
-import { Compartment, EditorState, StateEffect, StateField, Transaction } from '@codemirror/state'
+import {
+  Annotation,
+  Compartment,
+  EditorState,
+  StateEffect,
+  StateField,
+  Transaction,
+} from '@codemirror/state'
 import {
   Decoration,
   type DecorationSet,
@@ -173,6 +180,19 @@ let lastOpened: string | null = null
  *  in hand it is the only thing that tells a citation from a label. A type it
  *  does not set leaves the kind off rather than guessing — the accept itself
  *  still counts, which is the part that answers "is this ever used". */
+/** A whole-document replacement Galley made itself: the file was re-read from
+ *  disk, or you asked for the copy on disk.
+ *
+ *  Not something you typed, and the difference matters. The dirty tracker
+ *  belongs to the file the editor is on, and a reload can carry another
+ *  file's text — a stale editor instance whose view is still being written
+ *  to sees the new file's contents under the old file's name, and marks the
+ *  file you just saved and left as having unsaved work in it. The rail then
+ *  shows a dot on it, the browser asks "leave site?" on every close, and
+ *  renaming or deleting it is refused until you "save" it again. Naming the
+ *  transaction is the fix: whoever is listening, a reload is not an edit. */
+const RELOADING = Annotation.define<boolean>()
+
 export default function Editor({
   path,
   reloadKey,
@@ -415,7 +435,8 @@ export default function Editor({
           sizing.current.of(sizeTheme(fontSizeRef.current)),
           flashField,
           EditorView.updateListener.of((update) => {
-            if (update.docChanged) {
+            const reloaded = update.transactions.some((tr) => tr.annotation(RELOADING))
+            if (update.docChanged && !reloaded) {
               const rel = pathRef.current
               if (rel) pushText(rel, update.state.doc.toString(), PUSH_DELAY)
               const buffer = rel ? bufferFor(rel) : undefined
@@ -555,9 +576,12 @@ export default function Editor({
           changes: { from: 0, to: v.state.doc.length, insert: disk },
           selection: { anchor: head },
           effects: editable.current.reconfigure(EditorView.editable.of(body.editable)),
-          // Undo should not reach back into a version of the file that is
-          // gone, and there is nothing of yours in it to reach back for.
-          annotations: Transaction.addToHistory.of(false),
+          annotations: [
+            // Undo should not reach back into a version of the file that is
+            // gone, and there is nothing of yours in it to reach back for.
+            Transaction.addToHistory.of(false),
+            RELOADING.of(true),
+          ],
         })
         updateBuffer(rel, { state: v.state })
         setStatus(status)
@@ -666,7 +690,10 @@ export default function Editor({
     record('file.reload_from_disk', { path: rel })
     const next = { ...buffer.status, dirty: false, changedOnDisk: false }
     updateBuffer(rel, { saved: buffer.diskText, diskText: null, status: next })
-    v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: buffer.diskText } })
+    v.dispatch({
+      changes: { from: 0, to: v.state.doc.length, insert: buffer.diskText },
+      annotations: RELOADING.of(true),
+    })
     updateBuffer(rel, { state: v.state })
     setStatus(next)
     reportDirty.current(rel, false)

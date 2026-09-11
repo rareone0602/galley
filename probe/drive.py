@@ -40,6 +40,52 @@ HERE = os.environ.get("GALLEY_PROBE_DIR", "/tmp/galley-probe")
 fails: list[str] = []
 #: The worktree the seeded session works in, so a check can look inside it.
 REVIEW_TREE = None
+#: And its id, so a chat log can be put in front of the browser.
+REVIEW_SESSION = None
+
+#: What the agent says, as it really says it: Markdown. Written straight into
+#: the events table, because the alternative is paying for a turn.
+CHAT = [
+    ("prompt", {"text": "Check the claim in section 2."}),
+    ("text", {"role": "assistant", "text": (
+        "I read `main.tex` and the claim **does not hold** as written.\n\n"
+        "- The kernel check is *necessary*, not sufficient.\n"
+        "- The second sentence cites no number.\n\n"
+        "Here is what I would write instead:\n\n"
+        "```latex\n\\section{Method}\nThe kernel ratifies the term.\n```\n\n"
+        "| cell | loss |\n| --- | ---: |\n| N9p1 | 4.887 |\n\n"
+        "<script>window.__chat_pwned = true</script>\n"
+    )}),
+]
+
+
+def seed_chat(session_id):
+    """A conversation in the log, without an agent and without a turn.
+
+    The SSE route replays the durable log before it subscribes, so a row
+    written here is exactly what a tab reconnecting after a real turn sees.
+    """
+    import sqlite3
+
+    db = sqlite3.connect(f"{HERE}/project/state/galley.db")
+    with db:
+        for kind, payload in CHAT:
+            db.execute(
+                "INSERT INTO events (session_id, kind, payload_json, ts)"
+                " VALUES (?, ?, ?, ?)",
+                (session_id, kind, json.dumps(payload), time.time()),
+            )
+        # Enough filler to make the log taller than the pane, so scrolling is
+        # a real gesture rather than a no-op.
+        for i in range(40):
+            db.execute(
+                "INSERT INTO events (session_id, kind, payload_json, ts)"
+                " VALUES (?, ?, ?, ?)",
+                (session_id, "text", json.dumps(
+                    {"role": "assistant", "text": f"Paragraph {i} of the working out."}
+                ), time.time()),
+            )
+    db.close()
 
 def check(name, ok, detail=""):
     print(("  ok   " if ok else "  FAIL ") + name + ("" if ok else f"  <- {detail}"))
@@ -151,6 +197,7 @@ def seed_review():
          "commit", "-qam", "probe: proposed changes"],
         check=True,
     )
+    globals()["REVIEW_SESSION"] = row["id"]
     return tree
 
 
@@ -162,6 +209,7 @@ async def main():
     # Before the page loads, so the session is in the first list it fetches.
     global REVIEW_TREE
     REVIEW_TREE = seed_review()
+    seed_chat(REVIEW_SESSION)
     print(f"seeded a session to review: {REVIEW_TREE}")
     chrome = subprocess.Popen(
         [CHROME, "--headless=new", f"--remote-debugging-port={PORT}", "--no-sandbox",
@@ -360,6 +408,12 @@ async def run(page):
     check("the project's own CLAUDE.md reaches the agent's worktree",
           os.path.isfile(f"{REVIEW_TREE}/CLAUDE.md"), f"{REVIEW_TREE}/CLAUDE.md")
 
+    print("\n-- Save is Recompile --")
+    if shutil.which("latexmk") is None:
+        print("  skip  latexmk is not installed, so there is nothing to rebuild")
+    else:
+        await save_rebuilds_the_paper(page)
+
     print("\n-- the review pane: rewrite in place, Claude's still beside you --")
     await page.js('document.querySelector(".session")?.click()')
     clicked = await page.until(
@@ -429,12 +483,56 @@ async def run(page):
     check("and the rewrite is really in the file now",
           "Kernel aAcceptance" in (await page.js('document.querySelector(".cm-content")?.textContent') or ""))
 
+    # A file you saved and left must not come back marked unsaved. It used to:
+    # the reply to a file read could land between the render that moved the
+    # editor to the next file and the cleanup that cancels the read, and the
+    # new file's text was then written under the old file's name. The rail
+    # showed the dot, the browser asked "leave site?" on every close, and
+    # renaming or deleting that file was refused until you saved it again.
+    check("nothing you saved is still marked unsaved",
+          await page.js('[...document.querySelectorAll(".dirty")].length') == 0,
+          await page.js('[...document.querySelectorAll(".dirty")]'
+                        '.map(d => d.closest("[data-path]")?.dataset.path).join(", ")'))
+
     print("\n-- the chat pane: what a session costs, and the two ways out of one --")
     clicked = await page.until(
         '(() => { const b = [...document.querySelectorAll(".tabs button")]'
         '.find(b => b.textContent.startsWith("Chat")); if (!b || b.disabled) return false;'
         ' b.click(); return true })()', 8)
     check("the chat tab opens", clicked)
+    check("the conversation is there",
+          await page.until('document.querySelectorAll(".log .ev.text").length > 40', 8))
+
+    # What the agent writes is Markdown. It was being shown as the source, so
+    # every list was a run of asterisks and every code block was a line of
+    # backticks with the LaTeX in it.
+    check("bold in a reply is bold, not asterisks",
+          await page.js('!!document.querySelector(".ev.text .md strong")'))
+    check("a bulleted list is bullets",
+          await page.js('document.querySelectorAll(".ev.text .md ul li").length') == 2)
+    check("a code fence is a code block",
+          "\\section{Method}" in (await page.js(
+              'document.querySelector(".ev.text .md pre.md-code")?.textContent') or ""))
+    check("a table is a table",
+          await page.js('document.querySelectorAll(".ev.text .md table td").length') == 2)
+    check("inline code keeps its own style",
+          await page.js('!!document.querySelector(".ev.text .md code")'))
+    # The same renderer as the preview pane, for the same reason: it makes
+    # React elements, never an HTML string. The agent quotes files back.
+    check("nothing in a reply can run as script",
+          await page.js('window.__chat_pwned === undefined'))
+
+    print("\n-- reading the log without it dragging you down --")
+    check("it opens at the latest, the way a chat should",
+          await page.js('(() => { const l = document.querySelector(".log");'
+                        ' return l.scrollHeight - l.scrollTop - l.clientHeight < 40 })()'))
+    check("there is nothing to catch up on while you are at the bottom",
+          await page.js('!document.querySelector(".catch-up")'))
+    await page.js('document.querySelector(".log").scrollTop = 0')
+    await asyncio.sleep(1.6)  # two of the rail's polls, which re-render this pane
+    check("scrolling up stays scrolled up",
+          await page.js('document.querySelector(".log").scrollTop') == 0)
+
     check("it offers to compact the conversation",
           await page.until('!!document.querySelector(".log-foot .compact")', 5))
     # The seeded session has never had a turn, so there is nothing to fold.
@@ -460,6 +558,50 @@ async def run(page):
         await run_a_failing_build(page)
 
     check("nothing complained in the console", not page.noise, "; ".join(page.noise[:4]))
+
+
+async def save_rebuilds_the_paper(page):
+    """Saving starts a build, the way it does in Overleaf.
+
+    Only for a file the paper is built from: saving a note must not set
+    latexmk going. And only for the accepted build — the editor writes to the
+    paper's working copy and never to a branch, so a save cannot make a
+    proposed or a marked-up build stale.
+
+    This section has to come before the merge pane. `Input.insertText` stops
+    arriving at the editor once the merge pane has had the keyboard — the
+    editor is still editable and still focused, so it is the CDP side that
+    gives up, not Galley. An hour went into that; the order is the fix.
+    """
+    await page.open_file("notes.md")
+    await page.click_at(".cm-content", 0.2, 0.1)
+    await page.send("Input.insertText", text="A note, which prints nothing.\n")
+    before = await page.js('document.querySelector(".pdf-bar")?.textContent')
+    await page.js('document.querySelector(".editor-bar .tiny.primary")?.click()')
+    await asyncio.sleep(1.2)
+    check("saving a note does not set latexmk going",
+          await page.js('document.querySelector(".pdf-bar")?.textContent') == before,
+          await page.js('document.querySelector(".pdf-bar")?.textContent'))
+
+    # `preamble.tex`, not `main.tex`: the merge pane is about to show the
+    # sentences in main.tex, and a line typed here would arrive inside one of
+    # them. The rule is about what a file is, not which file it is.
+    await page.open_file("preamble.tex")
+    await page.click_at(".cm-content", 0.2, 0.1)
+    await page.send("Input.insertText", text="% harmless to the build\n")
+    await page.js('document.querySelector(".editor-bar .tiny.primary")?.click()')
+    check("saving the paper builds it, with nothing else pressed",
+          await page.until('/Compil/.test(document.querySelector(".pdf-bar .primary")'
+                           '?.textContent || "") || /built in/'
+                           '.test(document.querySelector(".pdf-bar")?.textContent || "")', 25),
+          await page.js('document.querySelector(".pdf-bar")?.textContent'))
+    check("and the rail stops calling it unsaved",
+          await page.until('!document.querySelector(\'[data-path="preamble.tex"] .dirty\')', 8),
+          "the dot in the file rail is still there")
+    check("and the paper on screen is the one you just saved",
+          await page.until('/built in/.test(document.querySelector(".pdf-bar")'
+                           '?.textContent || "")', 60),
+          await page.js('document.querySelector(".pdf-bar")?.textContent'))
 
 
 async def run_a_failing_build(page):

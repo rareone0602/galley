@@ -35,7 +35,7 @@ def register(app: FastAPI, d: Deps) -> None:
             d.note("refused", {"route": "compile", "reason": "no LaTeX root"})
             raise HTTPException(400, NO_LATEX.format(main_tex=d.cfg.paper.main_tex))
 
-    def _compile_job(session_id: str | None):
+    def _compile_job(session_id: str | None, auto: bool = False):
         repo, outdir = d.cfg.paths.paper_repo, d.cfg.paths.state_dir / "build"
         if session_id:
             row = d.require_session(session_id)
@@ -58,6 +58,10 @@ def register(app: FastAPI, d: Deps) -> None:
                     "ms": round((time.monotonic() - started) * 1000),
                     "ok": bool(result.get("ok")),
                     "problems": len(result.get("problems") or []),
+                    # Whether a save set this off rather than a press. The
+                    # question it answers is whether building on save earns
+                    # its place, or only burns a machine you are typing on.
+                    "auto": bool(auto),
                 },
             )
             return result
@@ -96,7 +100,10 @@ def register(app: FastAPI, d: Deps) -> None:
     async def compile_paper(body: dict = Body(default={})) -> dict:
         _require_latex()
         session_id = body.get("session_id")
-        return d.work.start(f"compile:{session_id or 'main'}", _compile_job(session_id))
+        return d.work.start(
+            f"compile:{session_id or 'main'}",
+            _compile_job(session_id, bool(body.get("auto"))),
+        )
 
     @app.get("/api/compile")
     def compile_status(session_id: str | None = None) -> dict:

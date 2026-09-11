@@ -61,6 +61,7 @@ def test_the_agent_is_scoped_to_its_worktree_with_the_code_mirror(agents, config
     opts = _options(agents, worktree_path="/somewhere/wt")
     assert opts.cwd == "/somewhere/wt"
     assert opts.add_dirs == [str(config.paths.code_mirror)]
+    assert opts.add_dirs == [str(d) for d in config.paths.readable]
     # "acceptEdits" would approve a write before the guard is consulted, and
     # the guard is the only thing keeping the agent out of the codebase.
     assert opts.permission_mode == "default"
@@ -78,7 +79,7 @@ def test_the_agent_gets_no_extra_tool_surface(agents) -> None:
 
 def test_the_model_is_offered_exactly_what_the_guard_allows(agents, tmp_path) -> None:
     """Left unset, the CLI's default set hides Grep and Glob behind a loader
-    the guard refuses, and offers a shell, cron and web fetch that it refuses
+    the guard refuses, and offers a shell, cron and messaging that it refuses
     too. One session searched a paper with Read alone that way: sixteen whole
     files to move one line."""
     from galley.services.agent import decide
@@ -86,10 +87,71 @@ def test_the_model_is_offered_exactly_what_the_guard_allows(agents, tmp_path) ->
     offered = _options(agents).tools
     assert isinstance(offered, list)
     assert {"Read", "Grep", "Glob", "Edit", "Write"} <= set(offered)
-    for refused in ("Bash", "ToolSearch", "WebFetch", "WebSearch"):
+    for refused in ("Bash", "ToolSearch", "SlashCommand"):
         assert refused not in offered
     for tool in offered:
         assert decide(tool, {"file_path": str(tmp_path / "x")}, tmp_path, 2, None).allowed, tool
+
+
+def test_the_web_is_offered_and_allowed_together_or_neither(tmp_path) -> None:
+    """The list says what is offered and the guard says what is allowed. One
+    switch moves both, so a tool can never be dangled in front of the model
+    only to be refused when it reaches for it."""
+    from galley.services.agent import decide, tool_surface
+
+    for tool in ("WebSearch", "WebFetch"):
+        assert tool in tool_surface(web=True)
+        assert decide(tool, {}, tmp_path, 2, None, web=True).allowed
+
+        assert tool not in tool_surface(web=False)
+        verdict = decide(tool, {}, tmp_path, 2, None, web=False)
+        assert not verdict.allowed
+        assert "[agent] web is false" in verdict.reason
+
+
+async def test_a_turn_that_breaks_in_galley_still_shuts_the_cli_down(
+    agents, monkeypatch
+) -> None:
+    """The CLI must not outlive the turn when Galley is what went wrong.
+
+    An `async for` does not close its iterator when its body raises, so a bad
+    event or a database that will not write left the SDK's generator suspended
+    for the garbage collector to finalise at some later moment — with the CLI
+    subprocess running and spending in the meantime. The assertion is made the
+    instant the turn returns, because "eventually" is exactly the bug.
+
+    Stop is a different path and was never this: cancelling raises inside the
+    SDK's own `await`, so its teardown runs there. That is why this is tested
+    through a failure rather than through the button.
+    """
+    import asyncio
+
+    from claude_agent_sdk import SystemMessage
+
+    closed = asyncio.Event()
+
+    async def fake_query(prompt, options):
+        try:
+            for _ in range(100):
+                yield SystemMessage(subtype="init", data={"session_id": "c-1", "model": "m"})
+        finally:
+            # The real teardown awaits: it closes the transport and waits for
+            # the CLI process to exit.
+            await asyncio.sleep(0)
+            closed.set()
+
+    def explode(_message):
+        raise RuntimeError("something in Galley could not handle that")
+
+    monkeypatch.setattr("galley.services.agent.query", fake_query)
+    monkeypatch.setattr("galley.services.agent.normalise", explode)
+
+    row = agents.create("breaks halfway")
+    agents.start(row["id"])
+    await asyncio.wait_for(agents._tasks[row["id"]], 5)
+
+    assert closed.is_set(), "the SDK's teardown was left to the garbage collector"
+    assert agents.db.get_session(row["id"])["status"] == "error"
 
 
 def test_the_system_prompt_matches_the_sdk_preset_shape(agents) -> None:
@@ -266,7 +328,7 @@ async def test_reading_anywhere_is_still_allowed(guard, tmp_path, tool: str) -> 
     assert result.behavior == "allow"
 
 
-@pytest.mark.parametrize("tool", ["Bash", "WebFetch", "SlashCommand"])
+@pytest.mark.parametrize("tool", ["Bash", "KillShell", "SlashCommand"])
 async def test_everything_else_is_denied(guard, tool: str) -> None:
     """A shell would undo every other line of the guard: `echo x > ../file` is
     a write by another name."""

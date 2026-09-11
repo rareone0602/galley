@@ -32,6 +32,7 @@ export default function PdfPane({
   sessionBusy,
   showInPdf,
   buildsPdf,
+  savedAt,
 }: {
   sessionId: string | null
   latexdiffAvailable: boolean
@@ -51,6 +52,9 @@ export default function PdfPane({
   /** A source line to go to, from the editor. The nonce is the gesture: the
    *  same line asked for twice should scroll and flash twice. */
   showInPdf?: { path: string; line: number; nonce: number } | null
+  /** When you last saved a file the paper is built from. Changing it is the
+   *  gesture, the way `showInPdf`'s nonce is: two saves are two builds. */
+  savedAt?: number
 }) {
   const [work, setWork] = useState<Work | null>(null)
   const [mode, setMode] = useState<Mode>('accepted')
@@ -60,6 +64,8 @@ export default function PdfPane({
   const [note, setNote] = useState<string | null>(null)
   const [asking, setAsking] = useState(false)
   const poll = useRef<number | null>(null)
+  /** A save that arrived while a build was running, still to be built. */
+  const missed = useRef(false)
 
   function stopPolling() {
     if (poll.current) window.clearInterval(poll.current)
@@ -67,7 +73,7 @@ export default function PdfPane({
   }
   useEffect(() => stopPolling, [])
 
-  async function run(which: Mode) {
+  async function run(which: Mode, auto = false) {
     setMode(which)
     stopPolling()
     // The build itself is recorded by the server, which knows its real
@@ -77,7 +83,7 @@ export default function PdfPane({
     const kick = () =>
       which === 'review' && sessionId
         ? api.review(sessionId)
-        : api.compile(which === 'branch' && sessionId ? sessionId : undefined)
+        : api.compile(which === 'branch' && sessionId ? sessionId : undefined, auto)
     const check = () =>
       which === 'review' && sessionId
         ? api.reviewStatus(sessionId)
@@ -89,6 +95,15 @@ export default function PdfPane({
       // recompile leaves the last good paper where it was, which is what the
       // errors beside it are about.
       if (result.state === 'done' && result.ok) setShown({ mode: which, stamp: Date.now() })
+      /* A save that landed while this build was running is not in it: asking
+       * to compile while latexmk runs joins the run already going, and that
+       * run read the file before you saved. So the save is remembered and
+       * built now, or the PDF would sit there a version behind with nothing
+       * on screen saying so. */
+      if (missed.current) {
+        missed.current = false
+        void run(which, true)
+      }
     }
 
     try {
@@ -163,6 +178,29 @@ export default function PdfPane({
 
   const busy = work?.state === 'running'
 
+  /* Save is Recompile, the way it is in Overleaf.
+   *
+   * Only the accepted build, because that is the only one a save can make
+   * stale: the editor writes to the paper's own working copy and never to a
+   * session's checkout, so a saved file changes nothing about what is on a
+   * branch. Looking at a proposed or a marked-up build therefore keeps it —
+   * and a marked-up one takes minutes, which is not something to start
+   * because somebody pressed Ctrl-S. */
+  const lastSaved = useRef(savedAt)
+  useEffect(() => {
+    if (savedAt === undefined || savedAt === lastSaved.current) return
+    lastSaved.current = savedAt
+    if (!buildsPdf || mode !== 'accepted') return
+    if (busy) {
+      missed.current = true
+      return
+    }
+    void run('accepted', true)
+    // The gesture is the save. Re-running for anything else here would build
+    // the paper every time the pane re-rendered.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [savedAt])
+
   /* A failed build, with the words to ask about it. The server writes those
    * words and withholds them when there is nothing to ask — a build that
    * worked, or the marked-up review, whose line numbers are in generated
@@ -212,7 +250,11 @@ export default function PdfPane({
           className="primary tiny"
           onClick={() => run(mode)}
           disabled={busy}
-          title="Build this version of the paper again"
+          title={
+            mode === 'accepted'
+              ? 'Build the paper again. Saving a file does this for you.'
+              : 'Build this version of the paper again'
+          }
         >
           {busy ? 'Compiling…' : 'Recompile'}
         </button>

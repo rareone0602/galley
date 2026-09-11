@@ -61,3 +61,32 @@
 /* Under the reply box: what the next message pays for, and the one thing you
    can do about it. */
 .log-foot { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+
+/* The chat log scrolls inside this, so the catch-up button can sit over the
+   bottom of it rather than pushing the reply box down when it appears. */
+.log-scroll { position: relative; min-height: 0; }
+.catch-up {
+  position: absolute;
+  left: 50%;
+  bottom: 10px;
+  transform: translateX(-50%);
+  box-shadow: var(--shadow-1, 0 2px 8px rgb(0 0 0 / 18%));
+}
+.tiny.stop { color: var(--content-danger); border-color: var(--content-danger); }
+
+/* Markdown in the chat.
+   `.ev.text p` sets pre-wrap, which is right for the prompt you typed and
+   wrong for a rendered paragraph: Markdown has already decided where the
+   lines go, and honouring the source's newlines as well breaks every wrapped
+   paragraph in two. Scoped under `.md` so your own text keeps its shape. */
+.ev.text .md { max-width: none; line-height: 1.55; }
+.ev.text .md p { white-space: normal; margin: 0 0 0.6em; }
+.ev.text .md > :last-child { margin-bottom: 0; }
+.ev.text .md h1, .ev.text .md h2, .ev.text .md h3 {
+  font-size: 1em;
+  margin: 0.8em 0 0.3em;
+  border-bottom: none;
+  padding-bottom: 0;
+}
+.ev.text .md ul, .ev.text .md ol { margin: 0 0 0.6em; }
+.ev.text .md pre.md-code { margin: 0 0 0.6em; }
