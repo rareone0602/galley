@@ -45,7 +45,7 @@ export function EqualRow({ text, view }: { text: string; view: View }) {
 /** Which of the four states a change is in, as a class and as a word. */
 export function stateOf(answer: Answer | undefined): 'open' | 'taken' | 'kept' | 'rewritten' {
   if (!answer) return 'open'
-  if (answer.kind === 'claude') return 'taken'
+  if (answer.kind === 'theirs') return 'taken'
   if (answer.kind === 'keep') return 'kept'
   return 'rewritten'
 }
@@ -86,6 +86,7 @@ function isSelecting(): boolean {
 export function ChangeRow({
   op,
   view,
+  theirs: whose,
   index,
   current,
   answer,
@@ -99,6 +100,10 @@ export function ChangeRow({
 }: {
   op: DiffOp
   view: View
+  /** Who wrote the other side — a session says "Claude", a branch says its
+   *  name. The pane compares two texts; which agent made one of them is a fact
+   *  about the work, not something to hard-code into the controls. */
+  theirs: string
   /** 1-based position among this file's changes, as the header counts them. */
   index: number
   /** The one the keyboard is on. */
@@ -158,8 +163,8 @@ export function ChangeRow({
     <>
       <button
         className={`take${state === 'taken' ? ' on' : ''}`}
-        onClick={() => onAnswer({ kind: 'claude' })}
-        title={`Take Claude's wording (${chordFor('claude')})`}
+        onClick={() => onAnswer({ kind: 'theirs' })}
+        title={`Take ${whose}'s wording (${chordFor('theirs')})`}
       >
         ✓
       </button>
@@ -181,7 +186,7 @@ export function ChangeRow({
   )
 
   /* Typing happens in the left cell, in place. The whole point of the pane is
-   * that Claude's sentence sits beside yours; taking the comparison away at
+   * that their sentence sits beside yours; taking the comparison away at
    * the moment you are moving one towards the other is the one thing it must
    * not do. So the row keeps its shape and only your side becomes a box. */
   const writing = (
@@ -204,9 +209,9 @@ export function ChangeRow({
         <button
           className="tiny"
           onClick={() => onType(op.new)}
-          title="Replace the box with Claude's sentence, then edit that"
+          title={`Replace the box with ${whose}'s sentence, then edit that`}
         >
-          Start from Claude's
+          Start from {whose}'s
         </button>
         <button
           className="tiny"
@@ -226,9 +231,9 @@ export function ChangeRow({
     </div>
   )
 
-  /** Claude's side. Clicking it starts a rewrite from his sentence — the way
-   *  you take his wording and then change one word of it. */
-  const theirs = (label: string) => (
+  /** Their side. Clicking it starts a rewrite from their sentence — the way
+   *  you take their wording and then change one word of it. */
+  const theirSide = (label: string) => (
     <div className="cell new" onClick={(e) => startFrom(op.new, e, null)}>
       {label && <span className="tag">{label}</span>}
       {op.new.trim() ? (
@@ -258,7 +263,7 @@ export function ChangeRow({
       <div className={`${classes} editing`} data-change-id={op.id}>
         {writing}
         <div className="gutter">{controls}</div>
-        {theirs('Claude proposed')}
+        {theirSide(`${whose} proposed`)}
       </div>
     )
   }
@@ -274,7 +279,7 @@ export function ChangeRow({
           </span>
         </div>
         <div className="gutter">{controls}</div>
-        {theirs('Claude proposed')}
+        {theirSide(`${whose} proposed`)}
       </div>
     )
 
@@ -300,7 +305,7 @@ export function ChangeRow({
             {controls}
             <span className="muted small">
               {state === 'taken'
-                ? "Claude's wording will be written"
+                ? `${whose}'s wording will be written`
                 : state === 'kept'
                   ? 'your wording will be kept'
                   : `change ${index}, still open`}
@@ -323,7 +328,7 @@ export function ChangeRow({
         )}
       </div>
       <div className="gutter">{controls}</div>
-      {theirs('')}
+      {theirSide('')}
     </div>
   )
 }

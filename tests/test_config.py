@@ -207,7 +207,7 @@ def test_compiling_refuses_before_it_starts_rather_than_after(bare_client) -> No
 
 
 def test_the_marked_up_review_refuses_for_the_same_reason(bare_client) -> None:
-    response = bare_client.post("/api/review", json={"session_id": "whatever"})
+    response = bare_client.post("/api/review", json={"branch": "whatever"})
     assert response.status_code == 400
     assert "main_tex" in response.json()["detail"]
 

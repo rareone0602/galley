@@ -1,17 +1,14 @@
 import { json, qs } from './client'
-import type { DiffOp, FileDiff } from './types'
+import type { DiffOp, Diff } from './types'
 
-/** The merge pane: what Claude changed, sentence by sentence. */
+/** The merge pane: what a branch changed, sentence by sentence. */
 export const diffApi = {
-  diff: (sessionId: string, path?: string) =>
-    json<{ base: string; head: string; files: FileDiff[] }>(
-      '/api/diff' + qs({ session_id: sessionId, path }),
-    ),
+  diff: (branch: string, path?: string) => json<Diff>('/api/diff' + qs({ branch, path })),
 }
 
 /** The whole file, as your choices make it.
  *
- * Three ways a change can end up: your wording (the default), Claude's
+ * Three ways a change can end up: your wording (the default), theirs
  * (accepted), or something you typed yourself, which beats both.
  *
  * This is the client half of a pair — `galley.segment.diff.apply_ops` is the

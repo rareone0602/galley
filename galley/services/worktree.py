@@ -87,12 +87,17 @@ def create(repo: Path, slug: str, base: str, seed: bool = True) -> Worktree:
     return Worktree(slug=slug, branch=branch, path=path, base_sha=base_sha)
 
 
-def seed_working_copy(repo: Path, tree: Path) -> str | None:
-    """Mirror the main worktree's uncommitted state into `tree` and commit it.
+def mirror(repo: Path, tree: Path) -> int:
+    """Copy one checkout's uncommitted state onto another, and say how much.
 
-    Returns the sha of the seed commit, or None if there was nothing to carry
-    over. Untracked files come too: a new section you have not committed yet is
-    part of the paper as far as you are concerned.
+    Untracked files come too: a new section you have not committed yet is part
+    of the paper as far as you are concerned. A file that is uncommitted
+    *because it was deleted* is deleted in the copy, which is why this cannot be
+    a plain directory copy.
+
+    One owner for "carry work in flight from one tree to another". A session
+    starts this way, and so does a build of a branch whose own checkout Galley
+    is not allowed to write into.
     """
     carried = 0
     for entry in git.status(repo):
@@ -107,7 +112,16 @@ def seed_working_copy(repo: Path, tree: Path) -> str | None:
         elif target.exists():
             target.unlink()
             carried += 1
+    return carried
 
+
+def seed_working_copy(repo: Path, tree: Path) -> str | None:
+    """Mirror the main worktree's uncommitted state into `tree` and commit it.
+
+    Returns the sha of the seed commit, or None if there was nothing to carry
+    over.
+    """
+    carried = mirror(repo, tree)
     if not carried or git.is_clean(tree):
         return None
     git.run(tree, "add", "-A")
@@ -123,14 +137,21 @@ def seed_working_copy(repo: Path, tree: Path) -> str | None:
     return git.head_sha(tree)
 
 
-def listing(repo: Path) -> list[dict]:
+def trees(repo: Path) -> list[dict]:
+    """Every checkout of this repository, whoever made it.
+
+    A checkout on a detached HEAD has no `branch` key at all — `git worktree
+    list` simply does not print one. Anything reading this has to ask rather
+    than assume, because a paper repository collects them: three of FLM's
+    checkouts are detached scratch trees from pushes to Overleaf.
+    """
     out = git.run(repo, "worktree", "list", "--porcelain")
-    trees: list[dict] = []
+    found: list[dict] = []
     current: dict = {}
     for line in out.splitlines():
         if not line:
             if current:
-                trees.append(current)
+                found.append(current)
                 current = {}
             continue
         key, _, value = line.partition(" ")
@@ -141,8 +162,13 @@ def listing(repo: Path) -> list[dict]:
         elif key in ("HEAD", "detached", "bare", "locked"):
             current[key] = value or True
     if current:
-        trees.append(current)
-    return [t for t in trees if t.get("branch", "").startswith(BRANCH_PREFIX)]
+        found.append(current)
+    return found
+
+
+def listing(repo: Path) -> list[dict]:
+    """The checkouts Galley made for its own sessions."""
+    return [t for t in trees(repo) if t.get("branch", "").startswith(BRANCH_PREFIX)]
 
 
 def remove(repo: Path, slug: str, keep_branch: bool = True) -> None:

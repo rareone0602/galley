@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { type ImperativePanelHandle, Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels'
-import { api, type Config, type Selection, type Session, type SourceLocation } from './api'
+import {
+  api,
+  type Branch,
+  type Config,
+  type Selection,
+  type Session,
+  type SourceLocation,
+} from './api'
 import Editor from './components/Editor'
 import FileTree from './components/FileTree'
 import GitPanel from './components/GitPanel'
@@ -33,8 +40,13 @@ const BUILT_FROM = /\.(tex|sty|cls|bib|bst|ltx|def|clo|cfg)$/i
 export default function App() {
   const [config, setConfig] = useState<Config | null>(null)
   const [sessions, setSessions] = useState<Session[]>([])
-  const [current, setCurrent] = useState<string | null>(null)
-  const [detail, setDetail] = useState<Session | null>(null)
+  /** Everything you could review, sessions among them. A session is a branch
+   *  with a conversation attached, so the rail is one list and not two. */
+  const [branches, setBranches] = useState<Branch[]>([])
+  /** What you are looking at, named by its branch. The branch is the identity:
+   *  it outlives the conversation, which is why a session you removed can still
+   *  be reviewed — the Remove button always promised its branch was kept. */
+  const [picked, setPicked] = useState<string | null>(null)
   const [tab, setTab] = useState<Tab>('editor')
   const [prompt, setPrompt] = useState('')
   const [error, setErrorText] = useState<string | null>(null)
@@ -82,7 +94,9 @@ export default function App() {
 
   const reload = useCallback(async () => {
     try {
-      setSessions(await api.sessions())
+      const [rows, work] = await Promise.all([api.sessions(), api.branches()])
+      setSessions(rows)
+      setBranches(work)
     } catch (e) {
       setError(String(e))
     }
@@ -104,30 +118,17 @@ export default function App() {
     return () => clearInterval(timer)
   }, [reload])
 
-  // The session's own detail carries what it changed, which is what the Review
-  // tab's badge counts. The list route does not run git per session.
-  useEffect(() => {
-    if (!current) {
-      setDetail(null)
-      return
-    }
-    let stale = false
-    const poll = () =>
-      api
-        .session(current)
-        .then((s) => !stale && setDetail(s))
-        .catch(() => undefined)
-    void poll()
-    const timer = setInterval(poll, 4000)
-    return () => {
-      stale = true
-      clearInterval(timer)
-    }
-  }, [current])
-
   const live = sessions.filter((s) => s.status !== 'removed')
-  const session = live.find((s) => s.id === current) ?? null
-  const pending = detail?.id === current ? (detail.files ?? []).length : 0
+  /* One list, so the branch row and the Review tab cannot disagree about what
+   * changed: the count on the badge is the count the review will show, because
+   * both come from the same answer. */
+  const source = branches.find((b) => b.branch === picked) ?? null
+  const session = source?.session_id ? (live.find((s) => s.id === source.session_id) ?? null) : null
+  const pending = source?.files ?? 0
+  /* Who wrote the other side of the comparison. A session is Claude's; anything
+   * else is named by its branch, because Galley has no idea who ran it and
+   * guessing would be worse than saying where it came from. */
+  const theirs = source ? (source.kind === 'session' ? 'Claude' : source.branch) : ''
   /* What the right-hand column draws. A `.tex` is drawn by LaTeX and belongs
    * to the PDF pane; a note, a config or a table the browser can draw itself,
    * and then it does — in the same place, so the source stays on the left. */
@@ -211,7 +212,7 @@ export default function App() {
       setStarting(true)
       try {
         const s = await api.createSession(instruction, selection)
-        setCurrent(s.id)
+        setPicked(s.branch)
         setTab('chat')
         setError(null)
         await reload()
@@ -243,11 +244,11 @@ export default function App() {
     async (fixPrompt: string, onBranch: boolean) => {
       setStarting(true)
       try {
-        if (onBranch && current) {
-          await api.message(current, fixPrompt)
+        if (onBranch && session) {
+          await api.message(session.id, fixPrompt)
         } else {
           const s = await api.createSession(fixPrompt)
-          setCurrent(s.id)
+          setPicked(s.branch)
         }
         setTab('chat')
         setError(null)
@@ -259,7 +260,7 @@ export default function App() {
         setStarting(false)
       }
     },
-    [current, reload, setError],
+    [session, reload, setError],
   )
 
   async function startPlain() {
@@ -268,7 +269,7 @@ export default function App() {
     try {
       const s = await api.createSession(prompt)
       setPrompt('')
-      setCurrent(s.id)
+      setPicked(s.branch)
       setTab('chat')
       await reload()
     } catch (e) {
@@ -338,7 +339,7 @@ export default function App() {
 
             <Panel id="sessions" order={2} defaultSize={38} minSize={12}>
               <aside className="rail-section">
-                <div className="rail-head">Claude sessions</div>
+                <div className="rail-head">Work to review</div>
 
                 <div className="new-session">
                   <textarea
@@ -359,36 +360,66 @@ export default function App() {
                   </button>
                 </div>
 
+                {/* One list, newest first: a session you started here and a
+                    branch another agent left behind are the same kind of thing
+                    — work with your name on the decision. Two lists would make
+                    you remember which agent wrote something before you could
+                    find it, and that is exactly what you do not remember. */}
                 <div className="scroll">
-                  {live.length === 0 && <div className="empty small">No sessions yet.</div>}
-                  {live.map((s) => (
-                    <div
-                      key={s.id}
-                      className={`session${s.id === current ? ' on' : ''}`}
-                      onClick={() => {
-                        setCurrent(s.id)
-                        setTab('chat')
-                      }}
-                    >
-                      <div className="title">{s.prompt.slice(0, 70)}</div>
-                      <div className="meta">
-                        <span
-                          className={`dot ${s.running ? 'running' : s.status === 'error' ? 'error' : 'idle'}`}
-                        />
-                        {s.sel_path && (
-                          <span className="chip" title={s.sel_path}>
-                            {s.sel_path.split('/').pop()}
+                  {branches.length === 0 && (
+                    <div className="empty small">No sessions or branches yet.</div>
+                  )}
+                  {branches.map((b) => {
+                    const s = b.session_id ? live.find((one) => one.id === b.session_id) : null
+                    return (
+                      <div
+                        key={b.branch}
+                        className={`session${b.branch === picked ? ' on' : ''}`}
+                        onClick={() => {
+                          setPicked(b.branch)
+                          setTab(b.session_id ? 'chat' : 'review')
+                        }}
+                      >
+                        <div className="title">
+                          {b.kind === 'session' && <span className="glyph" title="has a conversation">◆</span>}
+                          {b.label.slice(0, 70)}
+                        </div>
+                        <div className="meta">
+                          {s && (
+                            <span
+                              className={`dot ${s.running ? 'running' : s.status === 'error' ? 'error' : 'idle'}`}
+                            />
+                          )}
+                          {s?.sel_path && (
+                            <span className="chip" title={s.sel_path}>
+                              {s.sel_path.split('/').pop()}
+                            </span>
+                          )}
+                          <span className="mono" title={b.branch}>
+                            {b.branch}
                           </span>
-                        )}
-                        <span className="mono">{s.branch.replace('claude/', '')}</span>
-                        {s.cost_usd != null && s.cost_usd > 0 && (
-                          <span className="cost" title="what this session has cost so far">
-                            ${s.cost_usd.toFixed(2)}
-                          </span>
-                        )}
+                          {b.files > 0 && (
+                            <span className="chip files" title={`${b.added} added, ${b.removed} removed`}>
+                              {b.files} file{b.files === 1 ? '' : 's'}
+                            </span>
+                          )}
+                          {b.uncommitted > 0 && (
+                            <span
+                              className="chip wip"
+                              title="edited in its checkout and not committed — Galley reads it as it stands"
+                            >
+                              uncommitted
+                            </span>
+                          )}
+                          {s?.cost_usd != null && s.cost_usd > 0 && (
+                            <span className="cost" title="what this session has cost so far">
+                              ${s.cost_usd.toFixed(2)}
+                            </span>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
 
                 {session && (
@@ -414,7 +445,9 @@ export default function App() {
                         )
                         if (!sure) return
                         void api.removeSession(session.id).then(() => {
-                          setCurrent(null)
+                          // The branch stays on the rail, now as a plain one:
+                          // the work is still there and still reviewable, which
+                          // is what keeping the branch was always for.
                           return reload()
                         })
                       }}
@@ -446,7 +479,12 @@ export default function App() {
                     setTab(t)
                     record('tab.show', { tab: t })
                   }}
-                  disabled={!session && (t === 'review' || t === 'chat')}
+                  disabled={(t === 'review' && !source) || (t === 'chat' && !session)}
+                  title={
+                    t === 'chat' && source && !session
+                      ? `${source.branch} was written elsewhere, so there is no conversation to open`
+                      : undefined
+                  }
                 >
                   {t === 'editor'
                     ? 'Editor'
@@ -459,7 +497,7 @@ export default function App() {
                 </button>
               ))}
               <span className="spacer" />
-              {session && <span className="branch">{session.branch}</span>}
+              {source && <span className="branch">{source.branch}</span>}
             </nav>
 
             <div className={`pane${tab === 'editor' || tab === 'review' ? ' flush' : ''}`}>
@@ -479,16 +517,26 @@ export default function App() {
                 />
               )}
               {tab === 'review' &&
-                (session ? (
-                  <MergePane sessionId={session.id} onSaved={refreshFiles} />
+                (source ? (
+                  <MergePane
+                    key={source.branch}
+                    branch={source.branch}
+                    theirs={theirs}
+                    liveState={source.state}
+                    onSaved={refreshFiles}
+                  />
                 ) : (
-                  <div className="empty">Pick a session to review its changes.</div>
+                  <div className="empty">Pick something on the rail to review its changes.</div>
                 ))}
               {tab === 'chat' &&
                 (session ? (
                   <LogPane session={session} onChanged={reload} />
                 ) : (
-                  <div className="empty">Pick a session.</div>
+                  <div className="empty">
+                    {source
+                      ? `${source.branch} was written elsewhere, so there is no conversation here. Review is the tab you want.`
+                      : 'Pick a session.'}
+                  </div>
                 ))}
               {tab === 'git' && <GitPanel />}
             </div>
@@ -519,7 +567,7 @@ export default function App() {
               having glanced at a README. */}
           <div className="right-column">
             <PdfPane
-              sessionId={session?.id ?? null}
+              branch={source?.branch ?? null}
               latexdiffAvailable={config?.latexdiff ?? false}
               onCollapse={togglePdf}
               onJump={jumpToSource}

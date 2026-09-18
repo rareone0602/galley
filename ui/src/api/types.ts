@@ -14,7 +14,51 @@ export type DiffOp = {
   kinds: string[]
 }
 
-export type FileDiff = { path: string; ops: DiffOp[]; changes: number }
+export type FileDiff = {
+  path: string
+  ops: DiffOp[]
+  changes: number
+  /** Lines, as git counts them. The pane counts sentences; the file list shows
+   *  how much moved, which is what you triage on. Null for a binary file. */
+  added: number | null
+  removed: number | null
+  /** They deleted this file. It is named rather than offered as sentences:
+   *  taking "every sentence replaced by nothing" would empty your copy. */
+  deleted: boolean
+  /** There is text here to compare. A figure that changed is not reviewable. */
+  editable: boolean
+  /** You changed this file too, after they forked. Taking theirs on a passage
+   *  you have since rewritten is the one way this pane can lose your work. */
+  yours_moved: boolean
+  /** What must still be on disk for Save to be allowed to write it. */
+  sha: string
+}
+
+export type Diff = {
+  branch: string
+  kind: 'session' | 'branch'
+  label: string
+  base: string
+  /** Moves when the branch does. The rail polls it; the pane compares. */
+  state: string
+  files: FileDiff[]
+}
+
+/** Something you can review. A session is a branch with a conversation. */
+export type Branch = {
+  branch: string
+  kind: 'session' | 'branch'
+  label: string
+  base: string
+  session_id: string | null
+  /** Files changed in its checkout that nobody has committed yet. */
+  uncommitted: number
+  updated_at: number
+  state: string
+  files: number
+  added: number
+  removed: number
+}
 
 /** One entry in the project rail. Folders carry children; files do not. */
 export type TreeNode = {

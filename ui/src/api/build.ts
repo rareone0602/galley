@@ -7,19 +7,15 @@ export const buildApi = {
   /** `auto` says the build was not asked for by a press — a save set it off.
    *  It changes nothing about the build; it is there so the usage log can
    *  answer whether building on save earns its place. */
-  compile: (sessionId?: string, auto = false) =>
+  compile: (branch?: string, auto = false) =>
     json<Work>('/api/compile', {
       method: 'POST',
-      body: JSON.stringify({ ...(sessionId ? { session_id: sessionId } : {}), auto }),
+      body: JSON.stringify({ ...(branch ? { branch } : {}), auto }),
     }),
-  compileStatus: (sessionId?: string) =>
-    json<Work>('/api/compile' + qs({ session_id: sessionId })),
-  review: (sessionId: string) =>
-    json<Work>('/api/review', {
-      method: 'POST',
-      body: JSON.stringify({ session_id: sessionId }),
-    }),
-  reviewStatus: (sessionId: string) => json<Work>('/api/review' + qs({ session_id: sessionId })),
-  pdfUrl: (sessionId: string | null, review: boolean, stamp: number) =>
-    '/api/pdf' + qs({ session_id: sessionId, review, t: stamp }),
+  compileStatus: (branch?: string) => json<Work>('/api/compile' + qs({ branch })),
+  review: (branch: string) =>
+    json<Work>('/api/review', { method: 'POST', body: JSON.stringify({ branch }) }),
+  reviewStatus: (branch: string) => json<Work>('/api/review' + qs({ branch })),
+  pdfUrl: (branch: string | null, review: boolean, stamp: number) =>
+    '/api/pdf' + qs({ branch, review, t: stamp }),
 }

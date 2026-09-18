@@ -275,3 +275,49 @@ button.take:disabled { opacity: 0.4; }
 .save-plan td.counts { color: var(--content-secondary); }
 .save-plan td.bytes { text-align: right; white-space: nowrap; }
 .save-plan .delta { color: var(--content-secondary); }
+
+/* -- the files first, for a branch that moved more than one ------------- */
+
+.overview { overflow-y: auto; padding: 14px 16px 28px; }
+.overview-head h2 { font-size: var(--fs-lg); margin: 0 0 3px; font-weight: 600; }
+.overview-head p { margin: 0 0 14px; }
+.overview-list { display: flex; flex-direction: column; gap: 2px; }
+
+.orow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--radius);
+  border: 1px solid transparent;
+}
+.orow:hover { background: var(--bg-secondary); border-color: var(--border-divider); }
+.orow.done { opacity: 0.66; }
+
+.oname {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: 0;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+.oname .path { font-family: var(--mono); font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.oname .lines { display: flex; gap: 5px; font-size: 11px; font-variant-numeric: tabular-nums; flex: none; }
+.oname .lines .plus { color: var(--green-60); }
+.oname .lines .minus { color: var(--content-danger); }
+
+/* How much moved, so a 421-line cut does not look like a typo fix. */
+.oname .bar { width: 84px; height: 5px; background: var(--bg-tertiary); border-radius: 3px; overflow: hidden; flex: none; }
+.oname .bar .fill { display: block; height: 100%; background: var(--content-secondary); }
+
+.orow .state { font-size: 11px; color: var(--content-secondary); flex: none; }
+.orow .note { font-size: 11px; color: var(--content-secondary); flex: none; }
+.orow .note.gone { color: var(--content-danger); }
+.orow .note.moved { color: var(--content-warning); }

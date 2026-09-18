@@ -8,12 +8,12 @@ running) and GET says how it is getting on.
 from __future__ import annotations
 
 import time
-from pathlib import Path
 
 from fastapi import Body, FastAPI, HTTPException
 from fastapi.responses import FileResponse
 
 from ..services import latex
+from ..services.source import Source, build_tree
 from .deps import Deps
 
 
@@ -35,12 +35,15 @@ def register(app: FastAPI, d: Deps) -> None:
             d.note("refused", {"route": "compile", "reason": "no LaTeX root"})
             raise HTTPException(400, NO_LATEX.format(main_tex=d.cfg.paper.main_tex))
 
-    def _compile_job(session_id: str | None, auto: bool = False):
+    def _compile_job(source: Source | None, auto: bool = False):
         repo, outdir = d.cfg.paths.paper_repo, d.cfg.paths.state_dir / "build"
-        if session_id:
-            row = d.require_session(session_id)
-            repo = Path(row["worktree_path"])
-            outdir = d.cfg.paths.state_dir / "build" / session_id
+        if source is not None:
+            # A branch is built in a tree Galley owns, never in the checkout
+            # another agent is working in. latexmk with `-outdir` usually keeps
+            # its droppings to itself, and "usually" is not a promise to make
+            # with someone else's afternoon.
+            repo = build_tree(d.cfg, source)
+            outdir = d.cfg.paths.state_dir / "build" / source.slug
         def build() -> dict:
             started = time.monotonic()
             built = latex.compile_pdf(repo, d.cfg.paper.main_tex, outdir)
@@ -54,7 +57,7 @@ def register(app: FastAPI, d: Deps) -> None:
             d.note(
                 "compile.run",
                 {
-                    "mode": "branch" if session_id else "accepted",
+                    "mode": "branch" if source is not None else "accepted",
                     "ms": round((time.monotonic() - started) * 1000),
                     "ok": bool(result.get("ok")),
                     "problems": len(result.get("problems") or []),
@@ -68,17 +71,18 @@ def register(app: FastAPI, d: Deps) -> None:
 
         return build
 
-    def _review_job(session_id: str):
-        row = d.require_session(session_id)
-        worktree_path = Path(row["worktree_path"])
-        changed = [f["path"] for f in d.session_changes(row)]
+    def _review_job(source: Source):
+        proposed = build_tree(d.cfg, source)
+        # Deleted files and figures are not sentences latexdiff can mark up,
+        # and handing it one would end the run rather than the file.
+        changed = [f["path"] for f in source.changed() if f["editable"]]
         def marked_up() -> dict:
             started = time.monotonic()
             result = latex.latexdiff_pdf(
                 d.cfg.paths.paper_repo,
-                worktree_path,
+                proposed,
                 d.cfg.paper.main_tex,
-                d.cfg.paths.state_dir / "review" / session_id,
+                d.cfg.paths.state_dir / "review" / source.slug,
                 changed=changed,
             ).as_dict()
             d.note(
@@ -96,35 +100,41 @@ def register(app: FastAPI, d: Deps) -> None:
 
     # async, not sync: a sync route runs in a worker thread, where starting the
     # background task raises "no running event loop".
+    def _key(prefix: str, source: Source | None) -> str:
+        # `accepted` rather than the old `main`, because a branch is allowed to
+        # be called main and would then have quietly shared a slot with the
+        # build of your working copy.
+        return f"{prefix}:{source.slug if source is not None else 'accepted'}"
+
     @app.post("/api/compile")
     async def compile_paper(body: dict = Body(default={})) -> dict:
         _require_latex()
-        session_id = body.get("session_id")
+        source = d.source_for(body.get("branch"))
         return d.work.start(
-            f"compile:{session_id or 'main'}",
-            _compile_job(session_id, bool(body.get("auto"))),
+            _key("compile", source),
+            _compile_job(source, bool(body.get("auto"))),
         )
 
     @app.get("/api/compile")
-    def compile_status(session_id: str | None = None) -> dict:
-        return d.work.state(f"compile:{session_id or 'main'}")
+    def compile_status(branch: str | None = None) -> dict:
+        return d.work.state(_key("compile", d.source_for(branch)))
 
     @app.post("/api/review")
     async def latexdiff_review(body: dict = Body(...)) -> dict:
         """The second review surface: the change as it will appear in print."""
         _require_latex()
-        session_id = body.get("session_id")
-        if not session_id:
-            raise HTTPException(400, "a review needs a session")
-        return d.work.start(f"review:{session_id}", _review_job(session_id))
+        source = d.source_for(body.get("branch"))
+        if source is None:
+            raise HTTPException(400, "a review needs a branch")
+        return d.work.start(_key("review", source), _review_job(source))
 
     @app.get("/api/review")
-    def review_status(session_id: str) -> dict:
-        return d.work.state(f"review:{session_id}")
+    def review_status(branch: str) -> dict:
+        return d.work.state(_key("review", d.source_for(branch)))
 
     @app.get("/api/pdf")
-    def read_pdf(session_id: str | None = None, review: bool = False):
-        path = d.pdf_path(session_id, review)
+    def read_pdf(branch: str | None = None, review: bool = False):
+        path = d.pdf_path(d.source_for(branch), review)
         if not path.is_file():
             raise HTTPException(404, "no PDF yet; compile first")
         return FileResponse(path, media_type="application/pdf")

@@ -14,10 +14,10 @@
 export type Action =
   | 'next'
   | 'prev'
-  | 'claude'
+  | 'theirs'
   | 'keep'
   | 'rewrite'
-  | 'claudeAll'
+  | 'theirsAll'
   | 'keepAll'
   | 'undo'
   | 'save'
@@ -34,10 +34,10 @@ type Binding = {
 export const BINDINGS: Binding[] = [
   { action: 'next', chords: ['j', 'n'], says: 'next change' },
   { action: 'prev', chords: ['k', 'p'], says: 'previous change' },
-  { action: 'claude', chords: ['a'], says: "take Claude's wording, then step on" },
+  { action: 'theirs', chords: ['a'], says: "take their wording, then step on" },
   { action: 'keep', chords: ['r'], says: 'keep your wording, then step on' },
   { action: 'rewrite', chords: ['e'], says: 'write your own wording instead (or click into the text)' },
-  { action: 'claudeAll', chords: ['A'], says: "take Claude's for this whole file, leaving your rewrites" },
+  { action: 'theirsAll', chords: ['A'], says: "take theirs for this whole file, leaving your rewrites" },
   { action: 'keepAll', chords: ['R'], says: 'keep yours for this whole file, leaving your rewrites' },
   { action: 'undo', chords: ['u', 'Mod+z'], says: 'undo the last decision' },
   { action: 'save', chords: ['Mod+s'], says: 'show what Save would write' },

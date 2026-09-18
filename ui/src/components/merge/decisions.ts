@@ -1,7 +1,7 @@
 import { applyOps, type DiffOp, type FileDiff } from '../../api'
 
 /**
- * What you answered for one change, and what a session's answers add up to.
+ * What you answered for one change, and what a review's answers add up to.
  *
  * A change you have not looked at yet and a change you deliberately kept write
  * exactly the same bytes, so `applyOps` has no reason to tell them apart. A
@@ -11,7 +11,7 @@ import { applyOps, type DiffOp, type FileDiff } from '../../api'
  * derived from it at the one moment it is needed — assembling the file.
  */
 export type Answer =
-  | { kind: 'claude' }
+  | { kind: 'theirs' }
   | { kind: 'keep' }
   | { kind: 'rewrite'; text: string }
 
@@ -41,7 +41,7 @@ export function tally(changes: DiffOp[], answers: Answers): Tally {
   for (const op of changes) {
     const answer = answers[op.id]
     if (!answer) continue
-    if (answer.kind === 'claude') taken += 1
+    if (answer.kind === 'theirs') taken += 1
     else if (answer.kind === 'keep') kept += 1
     else rewritten += 1
   }
@@ -54,7 +54,7 @@ export function tally(changes: DiffOp[], answers: Answers): Tally {
   }
 }
 
-/** The same counts across every file in the session. */
+/** The same counts across every file in the review. */
 export function combine(parts: Tally[]): Tally {
   return parts.reduce(
     (sum, part) => ({
@@ -73,7 +73,7 @@ export function resultFor(ops: DiffOp[], answers: Answers): string {
   const accepted = new Set<number>()
   const edits: Record<number, string> = {}
   for (const [key, answer] of Object.entries(answers)) {
-    if (answer.kind === 'claude') accepted.add(Number(key))
+    if (answer.kind === 'theirs') accepted.add(Number(key))
     else if (answer.kind === 'rewrite') edits[Number(key)] = answer.text
   }
   return applyOps(ops, accepted, edits)
@@ -96,6 +96,8 @@ export type PlannedWrite = {
   before: number
   after: number
   tally: Tally
+  /** What the file must still be on disk for this write to be allowed. */
+  sha: string
 }
 
 /**
@@ -113,6 +115,8 @@ export function plan(
 ): PlannedWrite[] {
   const out: PlannedWrite[] = []
   for (const file of files) {
+    // A file they deleted, or a figure, carries no ops and is never written.
+    if (!file.editable) continue
     const answers = decisions[file.path] ?? {}
     const text = resultFor(file.ops, answers)
     const before = disk[file.path] ?? yoursFor(file.ops)
@@ -123,6 +127,7 @@ export function plan(
       before: byteLength(before),
       after: byteLength(text),
       tally: tally(changesIn(file), answers),
+      sha: file.sha,
     })
   }
   return out

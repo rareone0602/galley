@@ -12,8 +12,8 @@ type Shown = { mode: Mode; stamp: number }
 
 /** Which session's PDF a shown build is, if any. `accepted` is the paper
  *  itself, so it belongs to no session even when one is open. */
-const shownSession = (shown: Shown, sessionId: string | null) =>
-  shown.mode === 'accepted' ? null : sessionId
+const shownBranch = (shown: Shown, branch: string | null) =>
+  shown.mode === 'accepted' ? null : branch
 
 /**
  * The right-hand pane: the paper as it will look in print, always on screen.
@@ -24,7 +24,7 @@ const shownSession = (shown: Shown, sessionId: string | null) =>
  * you cannot see the result of is a build you have stopped reading during.
  */
 export default function PdfPane({
-  sessionId,
+  branch,
   latexdiffAvailable,
   onCollapse,
   onJump,
@@ -34,7 +34,7 @@ export default function PdfPane({
   buildsPdf,
   savedAt,
 }: {
-  sessionId: string | null
+  branch: string | null
   latexdiffAvailable: boolean
   onCollapse: () => void
   onJump: (where: SourceLocation) => void
@@ -81,13 +81,13 @@ export default function PdfPane({
     // tab closes. What is recorded here is only what the server cannot see:
     // the request never landing, or the polling failing.
     const kick = () =>
-      which === 'review' && sessionId
-        ? api.review(sessionId)
-        : api.compile(which === 'branch' && sessionId ? sessionId : undefined, auto)
+      which === 'review' && branch
+        ? api.review(branch)
+        : api.compile(which === 'branch' && branch ? branch : undefined, auto)
     const check = () =>
-      which === 'review' && sessionId
-        ? api.reviewStatus(sessionId)
-        : api.compileStatus(which === 'branch' && sessionId ? sessionId : undefined)
+      which === 'review' && branch
+        ? api.reviewStatus(branch)
+        : api.compileStatus(which === 'branch' && branch ? branch : undefined)
 
     const settle = (result: Work) => {
       setWork(result)
@@ -154,7 +154,7 @@ export default function PdfPane({
       .synctexView(
         showInPdf.path,
         showInPdf.line,
-        shown.mode === 'accepted' ? undefined : (sessionId ?? undefined),
+        shown.mode === 'accepted' ? undefined : (branch ?? undefined),
         shown.mode === 'review',
       )
       .then((view) => {
@@ -270,15 +270,15 @@ export default function PdfPane({
           <button
             className={mode === 'branch' ? 'on' : ''}
             onClick={() => run('branch')}
-            disabled={busy || !sessionId}
-            title="The paper as Claude proposes it, on this branch"
+            disabled={busy || !branch}
+            title="The paper as this branch has it"
           >
             Proposed
           </button>
           <button
             className={mode === 'review' ? 'on' : ''}
             onClick={() => run('review')}
-            disabled={busy || !sessionId || !latexdiffAvailable}
+            disabled={busy || !branch || !latexdiffAvailable}
             title={
               !latexdiffAvailable
                 ? 'latexdiff is not installed'
@@ -371,8 +371,8 @@ export default function PdfPane({
 
         {shown ? (
           <PdfViewer
-            src={api.pdfUrl(shownSession(shown, sessionId), shown.mode === 'review', shown.stamp)}
-            sessionId={shownSession(shown, sessionId)}
+            src={api.pdfUrl(shownBranch(shown, branch), shown.mode === 'review', shown.stamp)}
+            branch={shownBranch(shown, branch)}
             review={shown.mode === 'review'}
             // Recorded here rather than where the jump lands: the viewer calls
             // this only for a double-click that found its source, which is the

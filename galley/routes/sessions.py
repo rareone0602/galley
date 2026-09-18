@@ -58,7 +58,12 @@ def register(app: FastAPI, d: Deps) -> None:
     def get_session(session_id: str) -> dict:
         row = d.require_session(session_id)
         row["running"] = d.agents.is_running(session_id)
-        row["files"] = d.session_changes(row)
+        # Counted through the source, so the badge on the Review tab and the
+        # review itself can never disagree about what changed. A branch someone
+        # deleted by hand takes the review away and leaves the conversation
+        # standing: what was said is still true.
+        source = None if row["status"] == "removed" else _maybe_source(d, row["branch"])
+        row["files"] = source.changed() if source is not None else []
         return row
 
     @app.post("/api/sessions/{session_id}/message")
@@ -136,6 +141,14 @@ def register(app: FastAPI, d: Deps) -> None:
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
+
+
+def _maybe_source(d: Deps, branch: str):
+    """The branch's source, or nothing if the branch is no longer there."""
+    try:
+        return d.source_for(branch)
+    except HTTPException:
+        return None
 
 
 def _sse(event: dict) -> str:

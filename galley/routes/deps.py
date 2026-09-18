@@ -17,8 +17,9 @@ from fastapi import HTTPException
 from ..bus import EventBus
 from ..config import Config
 from ..db import Database
-from ..services import git, usage
+from ..services import source, usage
 from ..services.agent import AgentService
+from ..services.source import Source
 from ..services.work import WorkTable
 
 
@@ -44,22 +45,46 @@ class Deps:
             return self.cfg.paths.paper_repo
         return Path(self.require_session(session_id)["worktree_path"])
 
-    def session_changes(self, row: dict) -> list[dict]:
-        """What a session changed, measured from where it forked.
+    def sources(self) -> list[Source]:
+        """Every branch you could review, sessions among them."""
+        return source.listing(self.cfg, self.db.list_sessions())
 
-        The fork point rather than the branch name: a session carries your
-        uncommitted work in as its first commit, so diffing against the main
-        branch would report your own unsaved paragraphs as the agent's work.
+    def source_for(self, branch: str | None) -> Source | None:
+        """The branch a request named, or None when it named your working copy."""
+        if not branch:
+            return None
+        try:
+            return source.find(self.cfg, self.db.list_sessions(), branch)
+        except source.UnknownBranch as exc:
+            raise HTTPException(404, str(exc)) from exc
+
+    def tree_for(self, src: Source | None, review: bool) -> Path:
+        """The tree TeX ran in for a build. Named, never made.
+
+        Every path inside a SyncTeX file is written relative to it, and it is
+        not always the paper: a branch builds in a checkout of Galley's own, and
+        the marked-up review builds in a scratch copy beside its PDF.
         """
-        base = row["base_sha"] or self.cfg.paper.main_branch
-        return git.changed_files(self.cfg.paths.paper_repo, base, row["branch"])
+        if review and src is not None:
+            return self.cfg.paths.state_dir / "review" / src.slug / "tree"
+        if src is not None:
+            return source.built_in(self.cfg, src)
+        return self.cfg.paths.paper_repo
 
-    def pdf_path(self, session_id: str | None, review: bool) -> Path:
+    def pdf_path(self, src: Source | None, review: bool) -> Path:
+        """Where a build of this source lands.
+
+        Keyed by the branch rather than by a session, so a branch's PDF outlives
+        the conversation that made it. Old `build/<session id>/` directories are
+        orphaned by that change and can stay orphaned: `state_dir/build` is
+        throwaway output, never cached and never read back, so there is nothing
+        to migrate and nobody should write a migration.
+        """
         stem = Path(self.cfg.paper.main_tex).stem
-        if review and session_id:
-            return self.cfg.paths.state_dir / "review" / session_id / "latexdiff.pdf"
-        if session_id:
-            return self.cfg.paths.state_dir / "build" / session_id / f"{stem}.pdf"
+        if review and src is not None:
+            return self.cfg.paths.state_dir / "review" / src.slug / "latexdiff.pdf"
+        if src is not None:
+            return self.cfg.paths.state_dir / "build" / src.slug / f"{stem}.pdf"
         return self.cfg.paths.state_dir / "build" / f"{stem}.pdf"
 
     def note(self, kind: str, detail: dict | None = None) -> None:

@@ -83,6 +83,18 @@ def register(app: FastAPI, d: Deps) -> None:
         content = body.get("content")
         if not isinstance(content, str):
             raise HTTPException(400, "content must be the whole resulting file")
+        # A review is a long sitting, and it writes each file from the copy it
+        # read when it opened. Without this, a sentence you typed in the editor
+        # while the review was open is overwritten and nothing is said. The
+        # caller hands back the fingerprint it was given; a file that no longer
+        # matches is refused, and the pane can offer you a reload.
+        expected = body.get("if_match")
+        if isinstance(expected, str) and expected != files.digest(d.read_working(path)):
+            raise HTTPException(
+                409,
+                f"{path} changed on disk after this was read, so writing it now "
+                "would throw that change away. Reload and look again.",
+            )
         with _refusals():
             target = files.resolve(d.cfg.paths.paper_repo, path)
         target.parent.mkdir(parents=True, exist_ok=True)

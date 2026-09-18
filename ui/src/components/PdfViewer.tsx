@@ -24,13 +24,13 @@ export type Mark = { areas: PageArea[]; nonce: number }
  */
 export default function PdfViewer({
   src,
-  sessionId,
+  branch,
   review,
   onJump,
   mark,
 }: {
   src: string
-  sessionId: string | null
+  branch: string | null
   review: boolean
   onJump: (where: SourceLocation) => void
   /** Where the editor has asked the paper to go. */
@@ -135,7 +135,7 @@ export default function PdfViewer({
     async (page: number, x: number, y: number) => {
       setNote(null)
       try {
-        const where = await api.synctexEdit(page, x, y, sessionId ?? undefined, review)
+        const where = await api.synctexEdit(page, x, y, branch ?? undefined, review)
         if (!where.in_project) {
           setNote(`That came from ${where.path}, which is not part of the project.`)
           return
@@ -145,7 +145,7 @@ export default function PdfViewer({
         setNote(String(e))
       }
     },
-    [onJump, sessionId, review],
+    [onJump, branch, review],
   )
 
   if (error) return <div className="notice bad">{error}</div>

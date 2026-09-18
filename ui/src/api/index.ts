@@ -3,6 +3,7 @@
  * Adding an area is one import and one spread below, plus a new file beside
  * this one; nothing that calls `api.something()` has to know the split exists.
  */
+import { branchesApi } from './branches'
 import { buildApi } from './build'
 import { configApi } from './config'
 import { diffApi } from './diff'
@@ -20,6 +21,7 @@ export { json, qs } from './client'
 
 export const api = {
   ...configApi,
+  ...branchesApi,
   ...sessionsApi,
   ...filesApi,
   ...diffApi,

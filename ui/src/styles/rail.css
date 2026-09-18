@@ -58,3 +58,10 @@
 .dot.running { background: var(--bg-accent); animation: pulse 1.4s ease-in-out infinite; }
 .dot.error { background: var(--content-danger); }
 @keyframes pulse { 50% { opacity: 0.3; } }
+
+/* A session and a branch are one list. The glyph is the only difference the
+ * rail draws, because "has a conversation" is a property of the work and not a
+ * place to go looking for it. */
+.session .title .glyph { color: var(--bg-accent); margin-right: 5px; font-size: 9px; vertical-align: 1px; }
+.session .meta .chip.files { background: var(--bg-tertiary); }
+.session .meta .chip.wip { background: var(--yellow-10); color: var(--content-warning); }

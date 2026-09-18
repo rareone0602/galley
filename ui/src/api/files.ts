@@ -21,10 +21,14 @@ export const filesApi = {
     json<FileBody>('/api/file' + qs({ path, session_id: sessionId })),
   blobUrl: (path: string, sessionId?: string) =>
     '/api/blob' + qs({ path, session_id: sessionId }),
-  writeFile: (path: string, content: string) =>
+  /** `ifMatch` is the fingerprint the caller was given for what was on disk.
+   *  A review holds a file for as long as it takes to answer it, and writes the
+   *  whole buffer back; without this, a sentence typed in the editor meanwhile
+   *  is overwritten in silence. A write that no longer matches is refused. */
+  writeFile: (path: string, content: string, ifMatch?: string) =>
     json<{ ok: boolean; bytes: number }>(`/api/files/${asUrl(path)}`, {
       method: 'PUT',
-      body: JSON.stringify({ content }),
+      body: JSON.stringify({ content, ...(ifMatch ? { if_match: ifMatch } : {}) }),
     }),
 
   /** `parent` is a folder already in the project, or '' for the root. */

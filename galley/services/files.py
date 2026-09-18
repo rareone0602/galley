@@ -16,6 +16,7 @@ touches the disk goes through it.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import tempfile
@@ -23,6 +24,18 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import git
+
+
+def digest(text: str) -> str:
+    """A fingerprint of a file's text, for "has this changed under me?".
+
+    A review is a long sitting. The merge pane holds each file as it was when
+    the diff was read, and Save writes that whole buffer back — so a sentence
+    you typed in the editor meanwhile would be overwritten with no word said.
+    The pane hands back the fingerprint it was given, and a write that no longer
+    matches is refused instead of silently winning.
+    """
+    return hashlib.sha1(text.encode("utf-8")).hexdigest()[:16]
 
 IMAGE_SUFFIXES = frozenset(".png .jpg .jpeg .gif .svg .webp".split())
 # Not text, but the browser can draw them, so they open in their own view.

@@ -63,7 +63,7 @@ def test_the_diff_is_sentence_shaped(client, paper_repo, git_helper) -> None:
     )
     git_helper(worktree, "commit", "-qam", "rewrite")
 
-    body = client.get("/api/diff", params={"session_id": row["id"]}).json()
+    body = client.get("/api/diff", params={"branch": row["branch"]}).json()
     assert [f["path"] for f in body["files"]] == ["main.tex"]
     ops = body["files"][0]["ops"]
     changes = [o for o in ops if o["type"] == "change"]
@@ -81,7 +81,7 @@ def test_accepting_nothing_and_everything_reproduce_both_sides(client, paper_rep
     git_helper(worktree, "commit", "-qam", "five")
     after = (worktree / "main.tex").read_text()
 
-    ops = client.get("/api/diff", params={"session_id": row["id"]}).json()["files"][0]["ops"]
+    ops = client.get("/api/diff", params={"branch": row["branch"]}).json()["files"][0]["ops"]
     reject_all = "".join(o["old"] if o["type"] == "change" else o["new"] for o in ops)
     accept_all = "".join(o["new"] for o in ops)
     assert reject_all == before
@@ -219,7 +219,7 @@ async def test_the_agents_work_is_committed_and_shows_in_the_merge_pane(
             break
         await asyncio.sleep(0.05)
 
-    body = client.get("/api/diff", params={"session_id": row["id"]}).json()
+    body = client.get("/api/diff", params={"branch": row["branch"]}).json()
     assert [f["path"] for f in body["files"]] == ["main.tex"]
     assert any("Rewritten by the agent." in op["new"] for op in body["files"][0]["ops"])
 
@@ -446,11 +446,11 @@ async def test_review_starts_in_the_background(client, monkeypatch) -> None:
         latex, "latexdiff_pdf", lambda *a, **k: latex.CompileResult(True, None, [], "")
     )
     row = client.post("/api/sessions", json={"prompt": "review me", "start": False}).json()
-    started = client.post("/api/review", json={"session_id": row["id"]}).json()
+    started = client.post("/api/review", json={"branch": row["branch"]}).json()
     assert started["state"] in ("running", "done")
 
     for _ in range(50):
-        state = client.get(f"/api/review?session_id={row['id']}").json()
+        state = client.get("/api/review", params={"branch": row["branch"]}).json()
         if state["state"] != "running":
             break
         await asyncio.sleep(0.05)
@@ -520,7 +520,7 @@ async def test_a_build_records_whether_a_save_set_it_off(client, monkeypatch) ->
     assert runs and runs[-1]["detail"]["auto"] is True
 
 
-def test_a_review_needs_a_session(client) -> None:
+def test_a_review_needs_a_branch(client) -> None:
     assert client.post("/api/review", json={}).status_code == 400
 
 
@@ -545,7 +545,7 @@ def test_your_own_edits_are_not_reported_as_the_agents(client, paper_repo: Path)
     row = client.post("/api/sessions", json={"prompt": "quiet", "start": False}).json()
     assert client.get(f"/api/sessions/{row['id']}").json()["files"] == []
 
-    body = client.get("/api/diff", params={"session_id": row["id"]}).json()
+    body = client.get("/api/diff", params={"branch": row["branch"]}).json()
     assert body["files"] == [], "the agent changed nothing, so there is nothing to merge"
 
 

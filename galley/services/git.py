@@ -103,7 +103,64 @@ def conflicted(repo: Path) -> list[str]:
 
 def changed_files(repo: Path, base: str, head: str) -> list[dict]:
     """Files that differ between two revisions, with insert/delete counts."""
-    out = run(repo, "diff", "--numstat", "-z", f"{base}...{head}")
+    return _numstat(run(repo, "diff", "--numstat", "-z", f"{base}...{head}"))
+
+
+def changed_against(tree: Path, base: str) -> list[dict]:
+    """What a checkout holds that `base` does not — committed or not.
+
+    One question with three kinds of answer folded together: commits on the
+    branch, edits nobody has committed yet, and files git has never been told
+    about. An agent working somewhere else leaves all three, and a review that
+    saw only the first would be a review of what it had finished rather than of
+    what it has done.
+
+    Untracked files are asked about separately on purpose. `git add -N` would
+    make a single `git diff` report them, and it writes to an index that this
+    checkout's owner is using. Galley does not write to a checkout it does not
+    own, and that includes the index.
+    """
+    files = _numstat(run(tree, "diff", "--numstat", "-z", base))
+    known = {entry["path"] for entry in files}
+    for rel in run(tree, "ls-files", "--others", "--exclude-standard", "-z").split("\0"):
+        # A directory git has no opinion about can hold another checkout
+        # entirely; `seed_working_copy` skips the same two names.
+        if not rel or rel in known or rel.split("/")[0] in (".worktrees", ".galley"):
+            continue
+        # A symlink into `/scratch` outlives what it points at, so `is_file`
+        # rather than `exists`, and the read below is guarded anyway.
+        if (tree / rel).is_file():
+            files.append({"path": rel, **_new_file(tree / rel)})
+    return sorted(files, key=lambda entry: entry["path"])
+
+
+def _new_file(path: Path) -> dict:
+    """A wholly new file, counted the way numstat would have counted it."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        # numstat's own word for "I will not count this one".
+        return {"added": None, "removed": None, "binary": True}
+    return {"added": len(text.splitlines()), "removed": 0, "binary": False}
+
+
+def local_branches(repo: Path) -> list[dict]:
+    """Every branch in this clone, with when its tip was committed.
+
+    Separated by a space, which is safe because git refuses a branch name with
+    one in it — and unlike `git log`, `for-each-ref` copies `%x1f` through as
+    those four characters rather than as a byte.
+    """
+    out = run(repo, "for-each-ref", "--format=%(refname:short) %(committerdate:unix)", "refs/heads/")
+    entries = []
+    for line in out.splitlines():
+        name, _, when = line.rpartition(" ")
+        if name:
+            entries.append({"name": name, "ts": int(when or 0)})
+    return entries
+
+
+def _numstat(out: str) -> list[dict]:
     files: list[dict] = []
     fields = [f for f in out.split("\0") if f]
     i = 0

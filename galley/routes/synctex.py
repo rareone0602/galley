@@ -14,32 +14,25 @@ NO_DATA = (
 
 
 def register(app: FastAPI, d: Deps) -> None:
-    def _read(session_id: str | None, review: bool):
+    def _read(branch: str | None, review: bool):
         """The parsed map for a build, and the tree TeX ran in.
 
-        Every path in the file is written relative to that tree, and the tree
-        is not always the paper: a session compiles its own worktree, and the
-        marked-up review compiles a scratch copy. Both sit inside the
-        repository, so the tree has to be named rather than inferred from where
-        the PDF landed.
+        Every path in the file is written relative to that tree, and the tree is
+        not always the paper. `Deps.tree_for` is the one place that knows which
+        it was, so the answer here cannot drift from where the build happened.
         """
-        pdf = d.pdf_path(session_id, review)
-        tree = (
-            d.cfg.paths.state_dir / "review" / session_id / "tree"
-            if review and session_id
-            else d.repo_for(session_id)
-        )
-        source = synctex.find(pdf)
-        if source is None:
+        src = d.source_for(branch)
+        found = synctex.find(d.pdf_path(src, review))
+        if found is None:
             raise HTTPException(404, NO_DATA)
-        return synctex.SyncTeX.read(source), tree
+        return synctex.SyncTeX.read(found), d.tree_for(src, review)
 
     @app.get("/api/synctex/edit")
     def synctex_edit(
         page: int = Query(..., ge=1),
         x: float = Query(...),
         y: float = Query(...),
-        session_id: str | None = None,
+        branch: str | None = None,
         review: bool = False,
     ) -> dict:
         """Which source line produced what is at (x, y) on this page?
@@ -48,7 +41,7 @@ def register(app: FastAPI, d: Deps) -> None:
         a PDF viewer measures in. This is what a double-click on the paper
         asks, so the editor can put the cursor where you pointed.
         """
-        parsed, tree = _read(session_id, review)
+        parsed, tree = _read(branch, review)
         location = parsed.edit(page, x, y)
         if location is None:
             raise HTTPException(404, f"nothing recorded at ({x}, {y}) on page {page}")
@@ -58,7 +51,7 @@ def register(app: FastAPI, d: Deps) -> None:
     def synctex_view(
         path: str = Query(..., description="project-relative, as the file tree names it"),
         line: int = Query(..., ge=1),
-        session_id: str | None = None,
+        branch: str | None = None,
         review: bool = False,
     ) -> dict:
         """Where on the page did this source line end up?
@@ -69,7 +62,7 @@ def register(app: FastAPI, d: Deps) -> None:
         the search falls forward to the next line that did, and says so in
         `fell_forward` rather than passing the neighbour off as your line.
         """
-        parsed, tree = _read(session_id, review)
+        parsed, tree = _read(branch, review)
         found = parsed.view(path, line, d.cfg.paths.paper_repo, tree)
         if found is None:
             raise HTTPException(404, f"nothing in this build came from line {line} of {path}")
