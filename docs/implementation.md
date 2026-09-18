@@ -1143,6 +1143,101 @@ already written, and it showed up in a screenshot as one orange dot.
 
 ---
 
+## 34. What you review is a branch, and a session is one with a conversation
+
+Po Hung, 2026-09-18: *"I asked codex to implement in another branch. Can you
+provide branch and diff tools? Properly design the UX to prevent it becomes
+kludge."*
+
+The work was real and it was moving. `codex/pat-2026-09-18`, its own checkout at
+`FLM/.worktrees/pat-codex-2026-09-18`, ten files against `master` — and for the
+first twenty minutes of designing this it was **nine files, uncommitted, with
+its tip still on master**. It committed while the plan was being written. Both
+states had to work, and an open review had to notice the ground moving.
+
+**The assumption, not the feature.** Galley could already do nearly all of this:
+the merge pane compares two texts and lets you answer a sentence at a time.
+The only reason it could not show Codex's work is that every review surface was
+keyed by session id. So the change is keyed by the question actually being
+asked. *Which checkout* — diff, compile, the PDF, the marked-up review, SyncTeX
+— is keyed by **branch**. *Which conversation* — chat, message, stop, compact,
+remove — stays keyed by **session**. `session_id` was replaced outright on the
+first set rather than kept as an alias: two names for "which tree" is two owners
+of one fact, and every client is in this repository.
+
+**`services/source.py` is the owner, and one rule decides how a branch is read:**
+
+> Galley reads from disk any checkout it did not make.
+
+A checkout Galley made is a session's, committed at the end of every turn, so it
+is read at its tip — mid-turn it holds a file the agent is halfway through
+rewriting, and the pane would offer you half a sentence. Anyone else's is read
+exactly as it stands. The ownership test is structural (`path.parent ==
+repo/.worktrees`), not the branch's name, so renaming a branch by hand cannot
+change who owns its files.
+
+**And Galley never writes to a checkout it did not make** — not the files and
+not the index. `git.changed_against` asks about untracked files with a separate
+`ls-files --others` rather than `git add -N`, which is one command instead of
+two and would stage another agent's work. A branch builds in `build_tree`, a
+detached checkout of Galley's own kept at the tip and topped up from the real
+one, so the promise is structural rather than a hope about which flags latexmk
+honours. A pytest asserts the foreign checkout is byte-identical, its status
+unchanged and its index empty after a listing, a diff and a build.
+
+**Three things fell out of the unification rather than being built.** A removed
+session's branch is reviewable again — Remove always promised "its branch is
+kept, so nothing Claude wrote is lost", and that was a promise with nowhere to
+go. A session whose branch was deleted keeps its chat, because what was said is
+still true, which is the one place the two ideas must stay apart and the reason
+`/api/sessions` and `/api/branches` are two lists that are joined rather than
+one. And `compile:main` stopped meaning two things: a branch may be named main,
+and it was sharing the work-table slot with the build of the working copy. Keys
+are `compile:accepted` and `compile:<slug>`, where the slug is flattened *and*
+hashed, because `codex/pat` and `codex-pat` flatten alike and would have served
+each other's PDF.
+
+**Two latent defects, both worse with a branch, both fixed at the root.** A file
+the other side *deleted* was diffed as "every sentence replaced by nothing", so
+one click would write an empty file over yours; `changed()` marks it `gone`, the
+route sends no ops, and the overview says the deleting is yours to do. And a
+review holds each file from the moment it opened and writes the whole buffer
+back, so a sentence typed in the editor meanwhile was overwritten in silence —
+writes now carry the fingerprint the diff was read at (`files.digest`) and a
+mismatch is a 409 with a sentence, not a lost paragraph.
+
+**The UX decisions, and what decided them.** `galley usage` first, per the rule
+in section 32: review is where the time goes (30 opened, 455 changes offered,
+65 taken), and the git tab was opened **once** in thirty days with `git.commit`
+and `git.sync` never used. So nothing went in the git tab. The rail is **one
+list**, newest first, with a glyph for the ones that have a conversation: two
+lists would mean remembering which agent wrote something before you could find
+it, which is exactly what you do not remember. And a review of more than one
+file **opens on the files** — Codex's branch is 144 sentence-level changes
+across ten files, more decisions in one sitting than the usage log holds for a
+month, and met one at a time that is an endurance test rather than a review.
+The file rows carry the same ✓ and ✗ the gutter uses for one sentence, because
+answering a whole file is the same gesture and undoes the same way.
+
+**Po Hung chose two of these directly** when asked: the file overview as the way
+in, and read-only on any branch Galley does not own (over a button that would
+have committed another agent's uncommitted work for safekeeping).
+
+**What the screenshots caught that seventeen green probe checks did not.** The
+file name lost its column and every row read `m…`; the fix was wrong twice
+before it was right, because a fixed-width flex item does not shrink and the
+size bar was painting over the note beside it. The row is a grid with tracks
+now. The rail printed the branch name twice, once as title and once as chip.
+And spelling the buttons out as words left the path 24 pixels. Then on the real
+branch: ten files sharing `publications/paper/iclr27/sections/` and truncating
+at the end, so every row showed the directory and hid the name. The name comes
+first now, and the directory gives way.
+
+**Not in this change, deliberately:** starting a session on top of someone
+else's branch. `worktree.create` seeds from the *main* working copy, which is
+wrong when forking from a foreign branch, so it is a real design question rather
+than a missing wire. `create()` already takes a `base`, so the seam is there.
+
 ## What has been exercised, and what has not
 
 **Run against the real paper (258 `.tex` files, 13,153 segments):** the

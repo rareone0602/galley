@@ -90,9 +90,17 @@ Galley at once without colliding.
 | **a house style the agent must follow** | a `CLAUDE.md` in the paper repository | nothing in Galley. `setting_sources=["project"]` and a cwd inside the worktree mean the project's own file is read every turn, and Galley stays project-agnostic |
 
 `Deps` is the object every route area receives — config, database, bus, agents,
-the work table — plus the few questions more than one area asks (`require_session`,
-`repo_for`, `read_working`, `note`). If two areas need the same helper, it goes
-there rather than being imported sideways.
+the work table — plus the few questions more than one area asks
+(`require_session`, `source_for`, `repo_for`, `tree_for`, `pdf_path`,
+`read_working`, `note`). If two areas need the same helper, it goes there rather
+than being imported sideways.
+
+**Which key does a route take?** The one matching the question it asks. *Which
+checkout* — a diff, a build, the PDF, the marked-up review, SyncTeX — takes
+`branch`, resolved through `Deps.source_for`. *Which conversation* — the chat,
+a message, stop, compact, remove — takes `session_id`. A session is a branch
+with a conversation attached, so it has both; nothing else does, and a route
+that takes both is a route that has not decided what it is for.
 
 ---
 
@@ -186,6 +194,47 @@ your recent sentences from the agent and make the merge pane read your own
 unsaved paragraphs as changes Claude wants. `base_sha` is the commit
 `worktree.seed_working_copy` made, and every diff is taken from it — never from
 the branch name.
+
+**A branch is read one of two ways, and the rule is ownership, not the name.**
+`services/source.py`: *Galley reads from disk any checkout it did not make.* A
+session's worktree is Galley's, committed at the end of every turn, so it is
+read at its tip; reading its working tree instead would put a file the agent is
+halfway through rewriting into the merge pane. Anyone else's is read as it
+stands, because another agent may leave work uncommitted for hours and a review
+that could only read commits would show an empty branch — `codex/pat-2026-09-18`
+had *nothing* in its branch for the first afternoon; all of it was dirty on
+disk. The test is `path.parent == repo/.worktrees`, so renaming a branch by hand
+cannot change who owns its files.
+
+**And never write to a checkout you did not make, including its index.**
+`git add -N` would let one `git diff` report untracked files; it also stages
+another agent's work. `git.changed_against` uses two read-only commands instead.
+A branch builds in `source.build_tree`, a detached checkout of Galley's own, so
+nothing depends on latexmk keeping its droppings inside `-outdir`.
+
+**A build directory keyed by a branch needs a hash, not just a flatten.**
+`codex/pat` and `codex-pat` flatten to the same string and would serve each
+other's PDF. `source.slug` flattens *and* appends eight characters of sha1.
+Related: the work-table key for your working copy is `compile:accepted`, not
+`compile:main`, because a branch is allowed to be called main.
+
+**The thing you are reviewing can move while you review it.** Another agent is a
+process, not a document: `codex/pat-2026-09-18` went from nine dirty files to
+one commit in the twenty minutes it took to plan the feature. `/api/diff`
+returns a `state` fingerprint, the rail polls it, and the pane says so rather
+than letting you answer a copy of something that is gone.
+
+**A deletion is not "every sentence replaced by nothing".** It read as one giant
+change whose result was the empty string, and taking it wrote an empty file over
+the paper. `Source.changed` marks the file `gone`, the diff route sends no ops,
+and the UI names it. Latent since the first session could delete a file; a
+foreign branch just hits it far more often.
+
+**Nothing stops a write that is based on a stale read.** The merge pane holds
+each file from the moment the diff was fetched and Save writes the whole buffer,
+so an edit made in the editor meanwhile was overwritten silently. `PUT
+/api/files/{path}` takes `if_match` (`files.digest` of what the diff read) and
+answers 409. If you add another writer, give it the same guard.
 
 ---
 
