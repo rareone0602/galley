@@ -395,8 +395,15 @@ export default function App() {
                               {s.sel_path.split('/').pop()}
                             </span>
                           )}
-                          <span className="mono" title={b.branch}>
-                            {b.branch}
+                          {/* Only when it adds something: a branch nobody
+                              named is already its own title. */}
+                          {b.label !== b.branch && (
+                            <span className="mono" title={b.branch}>
+                              {b.branch}
+                            </span>
+                          )}
+                          <span className="ago" title={new Date(b.updated_at * 1000).toLocaleString()}>
+                            {ago(b.updated_at)}
                           </span>
                           {b.files > 0 && (
                             <span className="chip files" title={`${b.added} added, ${b.removed} removed`}>
@@ -595,4 +602,19 @@ export default function App() {
       </PanelGroup>
     </div>
   )
+}
+
+/** How long ago, in the fewest words that are still true.
+ *
+ * A branch's age is the thing that tells you whether it is the work you were
+ * just asked about or something from last week, and it is the reason the rail
+ * is sorted the way it is. */
+function ago(when: number): string {
+  const seconds = Math.max(0, Date.now() / 1000 - when)
+  if (seconds < 90) return 'just now'
+  const minutes = Math.round(seconds / 60)
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.round(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  return `${Math.round(hours / 24)}d ago`
 }

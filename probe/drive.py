@@ -40,6 +40,9 @@ HERE = os.environ.get("GALLEY_PROBE_DIR", "/tmp/galley-probe")
 fails: list[str] = []
 #: The worktree the seeded session works in, so a check can look inside it.
 REVIEW_TREE = None
+#: The checkout standing in for another agent's, so a check can look in it too.
+FOREIGN_TREE = None
+FOREIGN_BRANCH = "codex/probe-2026-09-18"
 #: And its id, so a chat log can be put in front of the browser.
 REVIEW_SESSION = None
 
@@ -201,16 +204,47 @@ def seed_review():
     return tree
 
 
+def seed_foreign(paper):
+    """A branch with its own checkout and work nobody has committed.
+
+    Galley did not make this one, so it is read from disk exactly as it stands —
+    which is the case that matters. The branch this was written for sat as nine
+    edited, uncommitted files for most of an afternoon, and a review that could
+    only read commits would have shown an empty branch.
+
+    Two files, so the review has something to triage and opens on the list.
+    The sentences come from the fixture so the probe and the paper cannot drift.
+    """
+    tree = f"{HERE}/elsewhere"
+    shutil.rmtree(tree, ignore_errors=True)
+    subprocess.run(["git", "-C", paper, "worktree", "prune"], check=True)
+    subprocess.run(
+        ["git", "-C", paper, "worktree", "add", "-q", "-b", FOREIGN_BRANCH, tree, "master"],
+        check=True,
+    )
+    with open(f"{tree}/main.tex", encoding="utf-8") as handle:
+        text = handle.read()
+    was, now = fixture.PROPOSED[0]
+    assert was in text, was
+    with open(f"{tree}/main.tex", "w", encoding="utf-8") as handle:
+        handle.write(text.replace(was, now))
+    with open(f"{tree}/preamble.tex", "a", encoding="utf-8") as handle:
+        handle.write("\n%% a line another agent added\n")
+    return tree
+
+
 async def main():
     # A fresh profile every run. The bundle is content-hashed but index.html is
     # not, so a kept cache serves the last build and the run silently checks
     # code that is no longer there — which cost an afternoon once already.
     shutil.rmtree(f"{HERE}/chrome", ignore_errors=True)
     # Before the page loads, so the session is in the first list it fetches.
-    global REVIEW_TREE
+    global REVIEW_TREE, FOREIGN_TREE
     REVIEW_TREE = seed_review()
     seed_chat(REVIEW_SESSION)
+    FOREIGN_TREE = seed_foreign(f"{HERE}/project/paper")
     print(f"seeded a session to review: {REVIEW_TREE}")
+    print(f"seeded another agent's branch:  {FOREIGN_TREE}")
     chrome = subprocess.Popen(
         [CHROME, "--headless=new", f"--remote-debugging-port={PORT}", "--no-sandbox",
          "--disable-gpu", "--window-size=1600,1000", f"--user-data-dir={HERE}/chrome", APP],
@@ -415,7 +449,8 @@ async def run(page):
         await save_rebuilds_the_paper(page)
 
     print("\n-- the review pane: rewrite in place, Claude's still beside you --")
-    await page.js('document.querySelector(".session")?.click()')
+    await page.js('[...document.querySelectorAll(".session")]'
+                  '.find(r => r.textContent.includes("rewrite two sentences"))?.click()')
     clicked = await page.until(
         '(() => { const b = [...document.querySelectorAll(".tabs button")]'
         '.find(b => b.textContent.startsWith("Review")); if (!b || b.disabled) return false;'
@@ -548,8 +583,12 @@ async def run(page):
                   '.find(b => b.textContent.startsWith("Remove"))?.click()')
     await asyncio.sleep(0.6)
     check("Remove asks first, and no leaves the session where it was",
-          await page.js('document.querySelectorAll(".session").length') == 1)
+          await page.js('[...document.querySelectorAll(".session")]'
+                        '.filter(r => r.textContent.includes("rewrite two sentences")).length') == 1)
     await page.shot("chat")
+
+    print("\n-- work another agent left on a branch --")
+    await review_another_agents_branch(page)
 
     print("\n-- a build that fails, and the button that hands it to Claude --")
     if shutil.which("latexmk") is None:
@@ -558,6 +597,90 @@ async def run(page):
         await run_a_failing_build(page)
 
     check("nothing complained in the console", not page.noise, "; ".join(page.noise[:4]))
+
+
+async def review_another_agents_branch(page):
+    """A branch Galley did not write, reviewed the way a session is.
+
+    Everything here is about the case the feature exists for: work that another
+    agent left in its own checkout, some of it not committed, which Galley must
+    read as it stands and must never write to.
+    """
+    there = await page.until(
+        '[...document.querySelectorAll(".session")].some(x => x.textContent.includes("codex/probe"))',
+        10)
+    check("the branch another agent left is on the rail, beside the sessions", there)
+    rows = await page.js(
+        '[...document.querySelectorAll(".session")].map(x => x.textContent)') or []
+    check("and the rail says its work is not committed",
+          any("uncommitted" in row for row in (rows or []) if "codex/probe" in row), rows)
+    check("the one with a conversation is the one marked",
+          await page.js('[...document.querySelectorAll(".session")]'
+                        '.filter(r => r.querySelector(".title .glyph")).length') == 1)
+
+    await page.js('[...document.querySelectorAll(".session")]'
+                  '.find(r => r.textContent.includes("codex/probe"))?.click()')
+    check("picking it opens the review rather than a chat it does not have",
+          await page.until('!!document.querySelector(".overview")', 8))
+    check("the chat tab is dim, and says why",
+          await page.js('(() => { const b = [...document.querySelectorAll(".tabs button")]'
+                        '.find(b => b.textContent.startsWith("Chat"));'
+                        ' return !!b && b.disabled && b.title.includes("written elsewhere") })()'))
+
+    check("the review opens on the files it changed, not on sentence one",
+          await page.until('document.querySelectorAll(".orow").length === 2', 8))
+    check("each file says how much of it moved",
+          await page.js('!!document.querySelector(".orow .lines .plus") '
+                        '&& !!document.querySelector(".orow .bar .fill")'))
+    await page.shot("branch-overview")
+
+    # The file it edited but never committed. Reading the commit would show
+    # nothing here, which is the whole reason the disk is read.
+    check("a file it edited and never committed is in the list",
+          await page.js('[...document.querySelectorAll(".orow .path")]'
+                        '.some(p => p.textContent === "preamble.tex")'))
+
+    # The name is the way in: it is the thing you are choosing between.
+    await page.js('(() => { const row = [...document.querySelectorAll(".orow")]'
+                  '.find(r => r.querySelector(".path")?.textContent === "main.tex");'
+                  ' row.querySelector(".oname").click() })()')
+    check("opening one gets you the sentences",
+          await page.until('document.querySelectorAll(".drow.change").length >= 1', 8))
+    check("the other column is headed with the branch, not with Claude",
+          "codex/probe" in (await page.js('document.querySelector(".col-head.theirs")?.textContent') or ""),
+          await page.js('document.querySelector(".col-head.theirs")?.textContent'))
+    await page.shot("branch-review")
+
+    # Back to the list, and answer a whole file from there.
+    await page.js('[...document.querySelectorAll(".merge-bar button")]'
+                  '.find(b => b.textContent.includes("Files"))?.click()')
+    await page.until('!!document.querySelector(".overview")', 8)
+    # The name opens the file; the tick answers the whole of it. Same two marks
+    # the gutter uses for one sentence.
+    await page.js('(() => { const row = [...document.querySelectorAll(".orow")]'
+                  '.find(r => r.querySelector(".path")?.textContent === "preamble.tex");'
+                  ' row.querySelector(".oacts button.take").click() })()')
+    check("taking a whole file from the list answers every change in it",
+          await page.until('(() => { const row = [...document.querySelectorAll(".orow")]'
+                           '.find(r => r.querySelector(".path")?.textContent === "preamble.tex");'
+                           ' return !!row && row.classList.contains("done") })()', 8))
+
+    before = open(f"{FOREIGN_TREE}/preamble.tex", encoding="utf-8").read()
+    await page.js('[...document.querySelectorAll(".merge-bar button")]'
+                  '.find(b => b.textContent.startsWith("Save"))?.click()')
+    check("Save says what it is about to write", await page.until('!!document.querySelector(".save-plan")', 8))
+    await page.js('document.querySelector(".save-plan button.primary")?.click()')
+    check("and writes it into your working copy",
+          await page.until('!!document.querySelector(".notice.good")', 10))
+
+    paper = f"{HERE}/project/paper/preamble.tex"
+    check("your copy has their line in it now",
+          "a line another agent added" in open(paper, encoding="utf-8").read())
+    check("and their checkout was not touched",
+          open(f"{FOREIGN_TREE}/preamble.tex", encoding="utf-8").read() == before)
+    check("nor was their index",
+          subprocess.run(["git", "-C", FOREIGN_TREE, "diff", "--cached", "--name-only"],
+                         capture_output=True, text=True).stdout == "")
 
 
 async def save_rebuilds_the_paper(page):

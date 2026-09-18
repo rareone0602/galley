@@ -65,3 +65,5 @@
 .session .title .glyph { color: var(--bg-accent); margin-right: 5px; font-size: 9px; vertical-align: 1px; }
 .session .meta .chip.files { background: var(--bg-tertiary); }
 .session .meta .chip.wip { background: var(--yellow-10); color: var(--content-warning); }
+.session .meta .ago { margin-left: auto; flex: none; color: var(--content-secondary); font-size: 10px; }
+.session .meta .cost { margin-left: 0; }

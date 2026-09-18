@@ -283,33 +283,6 @@ button.take:disabled { opacity: 0.4; }
 .overview-head p { margin: 0 0 14px; }
 .overview-list { display: flex; flex-direction: column; gap: 2px; }
 
-.orow {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
-  border-radius: var(--radius);
-  border: 1px solid transparent;
-}
-.orow:hover { background: var(--bg-secondary); border-color: var(--border-divider); }
-.orow.done { opacity: 0.66; }
-
-.oname {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex: 1;
-  min-width: 0;
-  background: none;
-  border: 0;
-  padding: 0;
-  text-align: left;
-  cursor: pointer;
-  font: inherit;
-  color: inherit;
-}
-.oname .path { font-family: var(--mono); font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.oname .lines { display: flex; gap: 5px; font-size: 11px; font-variant-numeric: tabular-nums; flex: none; }
 .oname .lines .plus { color: var(--green-60); }
 .oname .lines .minus { color: var(--content-danger); }
 
@@ -321,3 +294,45 @@ button.take:disabled { opacity: 0.4; }
 .orow .note { font-size: 11px; color: var(--content-secondary); flex: none; }
 .orow .note.gone { color: var(--content-danger); }
 .orow .note.moved { color: var(--content-warning); }
+
+
+/* Real tracks, not flex items competing for the row. A fixed-width flex item
+   does not shrink, so the size bar was painting over the note beside it while
+   every assertion passed — the screenshot is the only thing that said so. */
+.orow {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) auto;
+  align-items: center;
+  column-gap: 12px;
+  padding: 6px 8px;
+  border-radius: var(--radius);
+  border: 1px solid transparent;
+}
+.orow:hover { background: var(--bg-secondary); border-color: var(--border-divider); }
+.orow.done { opacity: 0.66; }
+
+.oname {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 72px 84px;
+  align-items: center;
+  column-gap: 10px;
+  background: none;
+  border: 0;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+.oname .path {
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.oname .lines { display: flex; gap: 5px; justify-content: flex-end; font-size: 11px; font-variant-numeric: tabular-nums; }
+.orow .oacts { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
+.orow .oacts .both { color: var(--content-warning); font-size: 9px; }
+.orow .oacts .state { min-width: 58px; text-align: right; }
+.orow .oacts .take { padding: 0 6px; }

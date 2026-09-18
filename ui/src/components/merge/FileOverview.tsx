@@ -62,39 +62,48 @@ export default function FileOverview({
                 </span>
               </button>
 
-              {/* A file with no sentences in it is named and explained, never
-                  offered. Taking "everything replaced by nothing" on a deleted
-                  file would write an empty file over your copy, which is not
-                  what deleting a file means. */}
-              {file.deleted ? (
-                <span className="note gone">
-                  {theirs} deleted this file. Galley will not delete yours — the rail does that.
-                </span>
-              ) : !file.editable ? (
-                <span className="note">not text, so there is nothing to compare here</span>
-              ) : (
-                <>
-                  {file.yours_moved && (
-                    <span className="note moved" title="both of you changed this file">
-                      you changed this too
-                    </span>
-                  )}
-                  <span className="state">
-                    {settled
-                      ? `${counts.taken} taken · ${counts.rewritten} rewritten · ${counts.kept} kept`
-                      : `${counts.total} changes, ${counts.open} to go`}
+              {/* The same two marks the gutter uses for a single sentence, so
+                  answering a whole file is visibly the same gesture as
+                  answering one — and so a real path like
+                  `publications/paper/iclr27/sections/appendix.tex` still fits
+                  on the row it belongs to. */}
+              <div className="oacts">
+                {file.deleted ? (
+                  <span className="note gone" title={`${theirs} deleted this file`}>
+                    they deleted it — deleting yours is the rail's job
                   </span>
-                  <button className="tiny" onClick={() => onAnswerAll(file.path, 'theirs')}>
-                    Take theirs
-                  </button>
-                  <button className="tiny" onClick={() => onAnswerAll(file.path, 'keep')}>
-                    Keep mine
-                  </button>
-                  <button className="tiny primary" onClick={() => onOpen(at)}>
-                    Open
-                  </button>
-                </>
-              )}
+                ) : !file.editable ? (
+                  <span className="note">not text</span>
+                ) : (
+                  <>
+                    {file.yours_moved && (
+                      <span
+                        className="both"
+                        title="you have changed this file too since they forked — taking theirs will replace what you wrote"
+                      >
+                        ●
+                      </span>
+                    )}
+                    <span className="state">
+                      {settled ? `${counts.taken}✓ ${counts.rewritten}✎ ${counts.kept}✗` : `${counts.open} to go`}
+                    </span>
+                    <button
+                      className="take"
+                      onClick={() => onAnswerAll(file.path, 'theirs')}
+                      title={`Take ${theirs}'s wording for the whole file`}
+                    >
+                      ✓
+                    </button>
+                    <button
+                      className="take keep"
+                      onClick={() => onAnswerAll(file.path, 'keep')}
+                      title="Keep your wording for the whole file"
+                    >
+                      ✗
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
           )
         })}
