@@ -325,11 +325,22 @@ button.take:disabled { opacity: 0.4; }
   color: inherit;
 }
 .oname .path {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
   font-family: var(--mono);
   font-size: var(--fs-sm);
+}
+.oname .path .base { flex: none; }
+.oname .path .dir {
+  flex: 0 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 11px;
+  color: var(--content-secondary);
 }
 .oname .lines { display: flex; gap: 5px; justify-content: flex-end; font-size: 11px; font-variant-numeric: tabular-nums; }
 .orow .oacts { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }

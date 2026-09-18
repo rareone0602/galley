@@ -637,12 +637,12 @@ async def review_another_agents_branch(page):
     # The file it edited but never committed. Reading the commit would show
     # nothing here, which is the whole reason the disk is read.
     check("a file it edited and never committed is in the list",
-          await page.js('[...document.querySelectorAll(".orow .path")]'
+          await page.js('[...document.querySelectorAll(".orow .path .base")]'
                         '.some(p => p.textContent === "preamble.tex")'))
 
     # The name is the way in: it is the thing you are choosing between.
     await page.js('(() => { const row = [...document.querySelectorAll(".orow")]'
-                  '.find(r => r.querySelector(".path")?.textContent === "main.tex");'
+                  '.find(r => r.querySelector(".path .base")?.textContent === "main.tex");'
                   ' row.querySelector(".oname").click() })()')
     check("opening one gets you the sentences",
           await page.until('document.querySelectorAll(".drow.change").length >= 1', 8))
@@ -658,11 +658,11 @@ async def review_another_agents_branch(page):
     # The name opens the file; the tick answers the whole of it. Same two marks
     # the gutter uses for one sentence.
     await page.js('(() => { const row = [...document.querySelectorAll(".orow")]'
-                  '.find(r => r.querySelector(".path")?.textContent === "preamble.tex");'
+                  '.find(r => r.querySelector(".path .base")?.textContent === "preamble.tex");'
                   ' row.querySelector(".oacts button.take").click() })()')
     check("taking a whole file from the list answers every change in it",
           await page.until('(() => { const row = [...document.querySelectorAll(".orow")]'
-                           '.find(r => r.querySelector(".path")?.textContent === "preamble.tex");'
+                           '.find(r => r.querySelector(".path .base")?.textContent === "preamble.tex");'
                            ' return !!row && row.classList.contains("done") })()', 8))
 
     before = open(f"{FOREIGN_TREE}/preamble.tex", encoding="utf-8").read()

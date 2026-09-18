@@ -51,8 +51,16 @@ export default function FileOverview({
           const settled = counts.total > 0 && counts.open === 0
           return (
             <div key={file.path} className={`orow${settled ? ' done' : ''}`}>
-              <button className="oname" onClick={() => file.editable && onOpen(at)}>
-                <span className="path">{file.path}</span>
+              <button className="oname" onClick={() => file.editable && onOpen(at)} title={file.path}>
+                {/* The name first, then where it lives. Ten files from one
+                    paper share a directory and differ in the last word, and
+                    trimming the end of the whole path hides exactly that. */}
+                <span className="path">
+                  <span className="base">{file.path.split('/').pop()}</span>
+                  {file.path.includes('/') && (
+                    <span className="dir">{file.path.slice(0, file.path.lastIndexOf('/'))}</span>
+                  )}
+                </span>
                 <span className="lines">
                   {file.added !== null && <span className="plus">+{file.added}</span>}
                   {file.removed !== null && <span className="minus">−{file.removed}</span>}
